@@ -44,6 +44,12 @@ enum class CommunicatorType {
   TCP
 }; // todo: more
 
+struct ControlMessage {
+    int flags;  // notify peer the lens of data / also 0 means false
+    // todo: more control message
+};
+
+
 /*
 Communicator: P2P Transport
 implemented by TCP and RDMA(libverbs)
@@ -170,11 +176,11 @@ private:
   struct rdma_cm_id *client_cm_id = NULL;
 
   // queue pair
-  struct ibv_qp *server_newconnection_qp = NULL;
+  struct ibv_qp *server_qp = NULL; // server_newconnection_qp
   struct ibv_qp *client_qp = NULL;
 
   // Protect Domain
-  struct ibv_pd *server_newconnection_pd = NULL;
+  struct ibv_pd *server_pd = NULL; // server_newconnection_pd
   struct ibv_pd *client_pd = NULL;
 
   // Memory Region
@@ -217,12 +223,25 @@ private:
   size_t mem_size = BUFFER_SIZE;
   void *share_buffer;
 
-  bool is_buffer_ok = false;
   int retry_times;
   int retry_delay_time;
   int retry_count = 0;
+  bool is_buffer_ok = false; // if buffer is allocated
+  bool is_running = true; // if the communicator is running
+  bool client_can_write = true;
+  bool server_can_recv = true;
 
-  bool is_closed = true;
+  // control msg
+  struct ControlMessage client_send_msg; // msg send buffer
+  struct ibv_mr *client_send_msg_mr = NULL;
+  struct ControlMessage client_recv_msg; // msg recv buffer
+  struct ibv_mr *client_recv_msg_mr = NULL;
+  struct ControlMessage server_recv_msg; // msg send buffer
+  struct ibv_mr *server_recv_msg_mr = NULL;
+  struct ControlMessage server_send_msg; // msg recv buffer
+  struct ibv_mr *server_send_msg_mr = NULL;
+  // client control thread
+  std::unique_ptr<std::thread> client_control_thread = nullptr;
 
 public:
   RDMACommunicator(Memory *mem_op, bool is_server = false,
@@ -271,7 +290,7 @@ public:
 
   ~RDMACommunicator() {
     /* if forgot close, it will be force closed here. */
-    if (!this->is_closed) {
+    if (this->is_running) {
       this->Close();
     }
   }
@@ -298,7 +317,7 @@ private:
    *         - Returns status_t::SUCCESS if the operation is successful
    *         - Returns status_t::ERROR if the operation fails
    */
-  status_t write(void *addr, size_t length);
+  status_t rdma_write(void *addr, size_t length);
 
   /**
    * @brief Read data from a remote memory address
@@ -313,17 +332,21 @@ private:
    *         - Returns status_t::SUCCESS if the operation is successful
    *         - Returns status_t::ERROR if the operation fails
    */
-  status_t read(void *addr, size_t length);
+  status_t rdma_read(void *addr, size_t length);
+
+  status_t send_rdma_msg(ibv_qp *qp, struct ibv_comp_channel *comp_channel, ibv_mr *msg_mr);
+  status_t recv_rdma_msg(ibv_qp *qp, struct ibv_comp_channel *comp_channel, ibv_mr *msg_mr);
 
   status_t allocate_buffer();
   status_t free_buffer();
   status_t init_sockaddr(const char *client_ip, uint16_t client_port,
                          const char *server_ip, uint16_t server_port);
-  status_t post_work_request(struct ibv_qp *qp, uint64_t sge_addr,
+  status_t post_send_work_request(struct ibv_qp *qp, uint64_t sge_addr,
                              size_t sge_length, uint32_t sge_lkey, int sge_num,
                              ibv_wr_opcode opcode, ibv_send_flags send_flags,
-                             uint32_t remote_key, uint64_t remote_addr,
-                             bool is_send);
+                             uint32_t remote_key = 0, uint64_t remote_addr = 0);
+  status_t post_recv_work_request(struct ibv_qp *qp, uint64_t sge_addr, size_t sge_length,
+                             uint32_t sge_lkey,int sge_num);
   status_t process_rdma_cm_event(struct rdma_event_channel *echannel,
                                  enum rdma_cm_event_type expected_event,
                                  struct rdma_cm_event **cm_event);

@@ -32,9 +32,10 @@ int main() {
   if (sret != status_t::SUCCESS)
     return 0;
 
-  uint8_t data[] = "Hello World!";
+  uint8_t data[] = "Hello!";
 
   void *send;
+  logDebug("allocate input buffer");
   mem_ops->allocate_buffer(&send, 1024);
   mem_ops->copy_host_to_device(send, data, sizeof(data));
 
@@ -42,10 +43,20 @@ int main() {
   mem_ops->copy_device_to_host(host_data, send, sizeof(data));
   printf("Client Write Data: %s\n", host_data);
 
+  sleep(2); // we need to wait for the server and client to finish their setup.
   con->Send(send, 1024, sizeof(data));
 
+  sleep(2);
+  uint8_t data2[] = "Bye!";
+  mem_ops->copy_host_to_device(send, data2, sizeof(data2));
+  char host_data2[sizeof(data2)];
+  mem_ops->copy_device_to_host(host_data2, send, sizeof(data2));
+  printf("Client Write Data: %s\n", host_data2);
+  con->Send(send, 1024, sizeof(data2));
+  
+  sleep(2);
   con->Close();
-  sleep(5);
+  sleep(2);
   con.reset(); // 将 con 设置为 nullptr 并释放其所管理的资源
   return 0;
 }

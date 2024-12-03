@@ -17,15 +17,7 @@ int main() {
   std::string client_ip = "192.168.2.251";
   std::string server_ip = "0.0.0.0";
 
-  // Memory *mem_ops = new CudaMemory(0, MemoryType::NVIDIA_GPU);
-  // Memory *mem_ops = new RocmMemory(0, MemoryType::AMD_GPU);
-  // Memory *mem_ops = new NeuwareMemory(1, MemoryType::CAMBRICON_MLU);
-  // Memory *mem_ops = new HostMemory(1, MemoryType::CPU);
   Memory *mem_ops = new Memory(1);
-
-  // RDMACommunicator *con = new RDMACommunicator(mem_ops, 1024, true, true,
-  // client_ip, 2025, server_ip, 2024);
-  // RDMACommunicator *con = new RDMACommunicator(mem_ops, 1024, true);
   auto con = CreateCommunicator(mem_ops, CommunicatorType::DEFAULT, true);
 
   sret = con->Start();

@@ -5,6 +5,8 @@
 #include <mem.h>
 #include <string>
 
+#include <csignal>
+
 #include <infiniband/verbs.h>
 #include <rdma/rdma_cma.h>
 
@@ -45,10 +47,9 @@ enum class CommunicatorType {
 }; // todo: more
 
 struct ControlMessage {
-    int flags;  // notify peer the lens of data / also 0 means false
-    // todo: more control message
+  int flags; // notify peer the lens of data / also 0 means false
+             // todo: more control message
 };
-
 
 /*
 Communicator: P2P Transport
@@ -58,8 +59,17 @@ class Communicator {
 protected:
   Memory *mem_op;
 
+  static void signalHandler(int signal) {
+    if (signal == SIGINT) {
+      std::cout << "\nCommunicator Quit...\n";
+      std::exit(0);
+    }
+  }
+
 public:
-  inline Communicator(Memory *mem_op) : mem_op(mem_op) {}
+  inline Communicator(Memory *mem_op) : mem_op(mem_op) {
+    std::signal(SIGINT, signalHandler);
+  }
   virtual inline ~Communicator() { this->mem_op->free(); }
 
   /**
@@ -227,7 +237,7 @@ private:
   int retry_delay_time;
   int retry_count = 0;
   bool is_buffer_ok = false; // if buffer is allocated
-  bool is_running = true; // if the communicator is running
+  bool is_running = true;    // if the communicator is running
   bool client_can_write = true;
   bool server_can_recv = true;
 
@@ -334,19 +344,24 @@ private:
    */
   status_t rdma_read(void *addr, size_t length);
 
-  status_t send_rdma_msg(ibv_qp *qp, struct ibv_comp_channel *comp_channel, ibv_mr *msg_mr);
-  status_t recv_rdma_msg(ibv_qp *qp, struct ibv_comp_channel *comp_channel, ibv_mr *msg_mr);
+  status_t send_rdma_msg(ibv_qp *qp, struct ibv_comp_channel *comp_channel,
+                         ibv_mr *msg_mr);
+  status_t recv_rdma_msg(ibv_qp *qp, struct ibv_comp_channel *comp_channel,
+                         ibv_mr *msg_mr);
 
   status_t allocate_buffer();
   status_t free_buffer();
   status_t init_sockaddr(const char *client_ip, uint16_t client_port,
                          const char *server_ip, uint16_t server_port);
   status_t post_send_work_request(struct ibv_qp *qp, uint64_t sge_addr,
-                             size_t sge_length, uint32_t sge_lkey, int sge_num,
-                             ibv_wr_opcode opcode, ibv_send_flags send_flags,
-                             uint32_t remote_key = 0, uint64_t remote_addr = 0);
-  status_t post_recv_work_request(struct ibv_qp *qp, uint64_t sge_addr, size_t sge_length,
-                             uint32_t sge_lkey,int sge_num);
+                                  size_t sge_length, uint32_t sge_lkey,
+                                  int sge_num, ibv_wr_opcode opcode,
+                                  ibv_send_flags send_flags,
+                                  uint32_t remote_key = 0,
+                                  uint64_t remote_addr = 0);
+  status_t post_recv_work_request(struct ibv_qp *qp, uint64_t sge_addr,
+                                  size_t sge_length, uint32_t sge_lkey,
+                                  int sge_num);
   status_t process_rdma_cm_event(struct rdma_event_channel *echannel,
                                  enum rdma_cm_event_type expected_event,
                                  struct rdma_cm_event **cm_event);

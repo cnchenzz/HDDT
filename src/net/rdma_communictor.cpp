@@ -11,7 +11,7 @@ status_t RDMACommunicator::allocate_buffer() {
       this->mem_op->allocate_buffer(&this->share_buffer, this->mem_size);
   if (sret != status_t::SUCCESS) {
     logError(
-        "RDMACommunicator::allocate_buffer mem_op->allocate_buffer err %s.",
+        "RDMACommunicator::allocate_buffer: mem_op->allocate_buffer err %s.",
         status_to_string(sret));
     return sret;
   }
@@ -22,7 +22,7 @@ status_t RDMACommunicator::allocate_buffer() {
 status_t RDMACommunicator::free_buffer() {
   status_t sret = this->mem_op->free_buffer(this->share_buffer);
   if (sret != status_t::SUCCESS) {
-    logError("RDMACommunicator::allocate_buffer mem_op->free_buffer err %s.",
+    logError("RDMACommunicator::allocate_buffer: mem_op->free_buffer err %s.",
              status_to_string(sret));
     return sret;
   }
@@ -66,18 +66,21 @@ status_t RDMACommunicator::Start() {
       this->retry_count++;
       std::this_thread::sleep_for(
           std::chrono::milliseconds(this->retry_delay_time));
-      logError("Retry to connect server. ...%d.", this->retry_count);
+      logError("RDMACommunicator::Start: Retry to connect server. ...%d.",
+               this->retry_count);
 
       sret_c = this->setup_client(); // re setup client
       if (sret_c != status_t::SUCCESS) {
-        logError("Setup client error. %s.", status_to_string(sret_c));
+        logError("RDMACommunicator::Start: Setup client error. %s.",
+                 status_to_string(sret_c));
         this->retry_count = 0;
         break;
       }
     }
     if (this->retry_count >= this->retry_times) {
       sret_c = status_t::ERROR;
-      logError("Connect server failed. %s.", status_to_string(sret_c));
+      logError("RDMACommunicator::Start: Connect server failed. %s.",
+               status_to_string(sret_c));
     }
   }
 
@@ -102,20 +105,21 @@ status_t RDMACommunicator::Close() {
   if (this->is_server) {
     close_status = this->close_server();
     if (close_status != status_t::SUCCESS) {
-      logError("Failed to close server.");
+      logError("RDMACommunicator::Close: Failed to close server.");
     }
   }
 
   if (this->is_client) {
     close_status = this->close_client();
     if (close_status != status_t::SUCCESS) {
-      logError("Failed to close client.");
+      logError("RDMACommunicator::Close: Failed to close client.");
     }
   }
 
   if (is_buffer_ok) {
     this->free_buffer();
-    logDebug("RDMACommunicator::Close free_buffer success.");
+    logDebug("RDMACommunicator::Close: RDMACommunicator::Close free_buffer "
+             "success.");
   }
 
   this->is_running = false;
@@ -148,15 +152,16 @@ status_t RDMACommunicator::Send(void *input_buffer, const size_t send_flags) {
     size_t current_send_flags =
         std::min(send_flags - accumulated_send_flags, this->mem_size);
 
-    logInfo(
-        "send_flags %ld. accumulated_send_flags %ld. current_send_flags %ld.",
-        send_flags, accumulated_send_flags, current_send_flags);
+    logInfo("RDMACommunicator::Send: send_flags %ld. accumulated_send_flags "
+            "%ld. current_send_flags %ld.",
+            send_flags, accumulated_send_flags, current_send_flags);
 
-    logDebug("Copying data from input buffer to shared buffer.");
+    logDebug("RDMACommunicator::Send: Copying data from input buffer to shared "
+             "buffer.");
     this->mem_op->copy_device_to_device(this->share_buffer, current_pointer,
                                         current_send_flags);
 
-    logDebug("Writing data to remote.");
+    logDebug("RDMACommunicator::Send: Writing data to remote.");
     sret = this->rdma_write(this->share_buffer, current_send_flags);
     if (sret != status_t::SUCCESS) {
       logError("Failed to write data to remote.");
@@ -166,7 +171,7 @@ status_t RDMACommunicator::Send(void *input_buffer, const size_t send_flags) {
     this->client_can_write = false;
     this->client_send_msg.flags = current_send_flags;
 
-    logDebug("Notifying remote that write is done.");
+    logDebug("RDMACommunicator::Send: Notifying remote that write is done.");
     sret = this->send_rdma_msg(this->client_qp, this->client_completion_channel,
                                this->client_send_msg_mr);
     if (sret != status_t::SUCCESS) {
@@ -174,14 +179,15 @@ status_t RDMACommunicator::Send(void *input_buffer, const size_t send_flags) {
       return sret;
     }
 
-    logDebug("Waiting for server notification.");
+    logDebug("RDMACommunicator::Send: Waiting for server notification.");
     sret = this->recv_rdma_msg(this->client_qp, this->client_completion_channel,
                                this->client_recv_msg_mr);
     if (sret == status_t::SUCCESS && this->client_recv_msg.flags > 0) {
-      logDebug("Server notifies client can write now.");
+      logDebug("RDMACommunicator::Send: Server notifies client can write now.");
       this->client_can_write = true;
     } else {
-      logError("Failed to receive server notification or invalid flags.");
+      logError("RDMACommunicator::Send: Failed to receive server notification "
+               "or invalid flags.");
       return sret;
     }
 
@@ -189,18 +195,18 @@ status_t RDMACommunicator::Send(void *input_buffer, const size_t send_flags) {
     accumulated_send_flags += current_send_flags;
   }
 
-  logInfo("Send finished!");
-  logDebug("Notifying remote that write is done.");
+  logInfo("RDMACommunicator::Send: Send finished!");
+  logDebug("RDMACommunicator::Send: Notifying remote that write is done.");
   this->client_send_msg.flags = 0;
   sret = this->send_rdma_msg(this->client_qp, this->client_completion_channel,
                              this->client_send_msg_mr);
   if (sret != status_t::SUCCESS) {
-    logError("Failed to send write done message.");
+    logError("RDMACommunicator::Send: Failed to send write done message.");
     return sret;
   }
 
   if (!this->client_can_write) {
-    logError("Client is not ready to send data.");
+    logError("RDMACommunicator::Send: Client is not ready to send data.");
     sret = status_t::ERROR;
     return sret;
   }
@@ -233,15 +239,14 @@ status_t RDMACommunicator::Recv(void *output_buffer, const size_t buffer_size,
          0) { // client waiting to send; client needs to send flag '0' to notify
               // server to stop recving
     if (this->server_can_recv) {
-      logInfo("recv_flags %ld. this->server_recv_msg.flags %ld.", *recv_flags,
-              this->server_recv_msg.flags);
-
-      logDebug("Attempting to receive message from client.");
+      logDebug(
+          "RDMACommunicator::Recv: Attempting to receive message from client.");
       sret =
           this->recv_rdma_msg(this->server_qp, this->server_completion_channel,
                               this->server_recv_msg_mr);
       if (sret == status_t::SUCCESS) {
-        logDebug("Message received from client with flags = %ld.",
+        logDebug("RDMACommunicator::Recv: Message received from client with "
+                 "flags = %ld.",
                  this->server_recv_msg.flags);
         if (this->server_recv_msg.flags > 0) {
           this->server_can_recv =
@@ -254,23 +259,27 @@ status_t RDMACommunicator::Recv(void *output_buffer, const size_t buffer_size,
           logInfo(">>>>>>>>>>>>> recv_flags %ld. recv_size %ld.", *recv_flags,
                   recv_size);
           if (*recv_flags > buffer_size) {
-            logError("Received more data than the buffer size.");
+            logError("RDMACommunicator::Recv: Received more data than the "
+                     "buffer size.");
             *recv_flags = buffer_size; // Adjust *recv_flags to buffer_size
           } else {
             // Copy data from shared buffer to output_buffer
             this->mem_op->copy_device_to_device(current_pointer,
                                                 this->share_buffer, recv_size);
             current_pointer = static_cast<char *>(current_pointer) + recv_size;
-            logInfo("Server received data from client: length = %ld.",
+            logInfo("RDMACommunicator::Recv: Server received data from client: "
+                    "length = %ld.",
                     this->server_recv_msg.flags);
           }
 
         } else { // this->server_recv_msg.flags == 0
-          logDebug("Client notifies server to stop receiving.");
+          logDebug("RDMACommunicator::Recv: Client notifies server to stop "
+                   "receiving.");
           break; // Exit the loop as the client has indicated no more data
         }
       } else {
-        logError("Failed to receive message from client.");
+        logError(
+            "RDMACommunicator::Recv: Failed to receive message from client.");
         return sret;
       }
     }
@@ -315,24 +324,30 @@ status_t RDMACommunicator::rdma_write(void *addr, size_t length) {
   struct ibv_wc wc;
   int wc_count;
 
-  logDebug("RDMACommunicator::rdma_write: post_send_work_request()");
   sret = this->post_send_work_request(
-      this->client_qp, (uint64_t)addr, (uint32_t)length,
-      this->client_send_buffer_mr->lkey, 1, IBV_WR_RDMA_WRITE,
-      IBV_SEND_SIGNALED, this->client_newserver_metadata_attr.stag.remote_stag,
+      this->client_qp, reinterpret_cast<uintptr_t>(addr),
+      static_cast<uint32_t>(length), this->client_send_buffer_mr->lkey, 1,
+      IBV_WR_RDMA_WRITE, IBV_SEND_SIGNALED,
+      this->client_newserver_metadata_attr.stag.remote_stag,
       this->client_newserver_metadata_attr.address);
+
   if (sret != status_t::SUCCESS) {
-    logError("Failed to post write WR from client buffer");
+    logError("RDMACommunicator::rdma_write: Failed to post write WR from "
+             "client buffer: %s",
+             status_to_string(sret));
     return sret;
   }
 
   wc_count = this->process_work_completion_events(
       this->client_completion_channel, &wc, 1);
   if (wc_count != 1) {
-    logError("We failed to get 1 work completions.");
+    logError("RDMACommunicator::rdma_write: Failed to get 1 work completions. "
+             "Actual count: %d",
+             wc_count);
     return status_t::ERROR;
   }
-  logDebug("Client side WRITE is complete.");
+
+  logDebug("RDMACommunicator::rdma_write: Client side WRITE is complete.");
   return status_t::SUCCESS;
 }
 
@@ -341,24 +356,25 @@ status_t RDMACommunicator::rdma_read(void *addr, size_t length) {
   struct ibv_wc wc;
   int wc_count;
 
-  logDebug("RDMACommunicator::rdma_read: post_send_work_request()");
   sret = this->post_send_work_request(
       this->client_qp, (uint64_t)addr, (uint32_t)length,
       this->client_recv_buffer_mr->lkey, 1, IBV_WR_RDMA_READ, IBV_SEND_SIGNALED,
       this->client_newserver_metadata_attr.stag.remote_stag,
       this->client_newserver_metadata_attr.address);
   if (sret != status_t::SUCCESS) {
-    logError("Failed to post read WR from client buffer");
+    logError("RDMACommunicator::rdma_read: Failed to post read WR from client "
+             "buffer");
     return sret;
   }
 
   wc_count = this->process_work_completion_events(
       this->client_completion_channel, &wc, 1);
   if (wc_count != 1) {
-    logError("We failed to get 1 work completions.");
+    logError(
+        "RDMACommunicator::rdma_read: We failed to get 1 work completions.");
     return status_t::ERROR;
   }
-  logDebug("Client side READ is complete.");
+  logDebug("RDMACommunicator::rdma_read: Client side READ is complete.");
   return status_t::SUCCESS;
 }
 
@@ -447,29 +463,32 @@ status_t RDMACommunicator::setup_server() {
   // 1. event channel
   this->server_cm_event_channel = rdma_create_event_channel();
   if (!this->server_cm_event_channel) {
-    logError("Creating cm event channel failed");
+    logError(
+        "RDMACommunicator::setup_server: Creating cm event channel failed");
     return status_t::ERROR;
   }
-  logDebug("Server: RDMA CM event channel is created successfully at %p.",
+  logDebug("RDMACommunicator::setup_server: RDMA CM event channel is created "
+           "successfully at %p.",
            this->server_cm_event_channel);
 
   // 2. create rdma id
   ret = rdma_create_id(this->server_cm_event_channel, &this->server_cm_id, NULL,
                        RDMA_PS_TCP);
   if (ret) {
-    logError("Creating server cm id failed");
+    logError("RDMACommunicator::setup_server: Creating server cm id failed");
     return status_t::ERROR;
   }
-  logDebug("RDMA connection id for the server is created.");
+  logDebug("RDMACommunicator::setup_server: connection id for the server is "
+           "created.");
 
   // 3. bind server
   ret =
       rdma_bind_addr(this->server_cm_id, (struct sockaddr *)&this->server_addr);
   if (ret) {
-    logError("Failed to bind server address");
+    logError("RDMACommunicator::setup_server: Failed to bind server address");
     return status_t::ERROR;
   }
-  logDebug("Server RDMA CM id is successfully binded.");
+  logDebug("RDMACommunicator::setup_server: id is successfully binded.");
 
   return status_t::SUCCESS;
 }
@@ -484,10 +503,12 @@ status_t RDMACommunicator::start_server() {
   ret = rdma_listen(this->server_cm_id,
                     8); /* backlog = 8 clients, same as TCP, see man listen*/
   if (ret) {
-    logError("rdma_listen failed to listen on server address.");
+    logError("RDMACommunicator::start_server: rdma_listen failed to listen on "
+             "server address.");
     return status_t::ERROR;
   }
-  logInfo("Server is listening successfully at: %s , port: %d.",
+  logInfo("RDMACommunicator::start_server: Server is listening successfully "
+          "at: %s , port: %d.",
           inet_ntoa(this->server_addr.sin_addr),
           ntohs(this->server_addr.sin_port));
 
@@ -495,26 +516,31 @@ status_t RDMACommunicator::start_server() {
   sret = process_rdma_cm_event(this->server_cm_event_channel,
                                RDMA_CM_EVENT_CONNECT_REQUEST, &cm_event);
   if (sret == status_t::ERROR) {
-    logError("Failed to get cm event.");
+    logError("RDMACommunicator::start_server: Failed to get cm event.");
     return sret;
   }
   this->server_cm_newconnection_id = cm_event->id;
   ret = rdma_ack_cm_event(cm_event);
   if (ret) {
-    logError("Failed to acknowledge the cm event errno.");
+    logError("RDMACommunicator::start_server: Failed to acknowledge the cm "
+             "event errno.");
     return status_t::ERROR;
   }
-  logDebug("A new RDMA client(newconnection) connection id is stored at %p.",
+  logDebug("RDMACommunicator::start_server: A new RDMA client(newconnection) "
+           "connection id is stored at %p.",
            this->server_cm_newconnection_id);
 
   // 3. setup newconnection client resource
   // 3.1. create pd
   this->server_pd = ibv_alloc_pd(this->server_cm_newconnection_id->verbs);
   if (!this->server_pd) {
-    logError("Failed to allocate a protection domain.");
+    logError("RDMACommunicator::start_server: Failed to allocate a protection "
+             "domain.");
     return status_t::ERROR;
   }
-  logDebug("A new protection domain is allocated at %p.", this->server_pd);
+  logDebug("RDMACommunicator::start_server: A new protection domain is "
+           "allocated at %p.",
+           this->server_pd);
 
   // 3.2. prepare server's buffer mr
   ibv_access_flags access = static_cast<const ibv_access_flags>(
@@ -525,7 +551,7 @@ status_t RDMACommunicator::start_server() {
       this->share_buffer, // for transport : send/recv buffer is the buffer
       this->mem_size, access);
   if (!this->server_send_buffer_mr) {
-    logError("Server :send : failed to create a buffer.");
+    logError("RDMACommunicator::start_server: failed to create a send buffer.");
     return status_t::ERROR;
   }
   this->server_recv_buffer_mr = rdma_buffer_register(
@@ -533,10 +559,10 @@ status_t RDMACommunicator::start_server() {
       this->share_buffer, // for transport : send/recv buffer is the buffer
       this->mem_size, access);
   if (!this->server_recv_buffer_mr) {
-    logError("Server :recv : failed to create a buffer.");
+    logError("RDMACommunicator::start_server: failed to create a recv buffer.");
     return status_t::ERROR;
   }
-  logInfo("Server prepare memory region success.");
+  logInfo("RDMACommunicator::start_server: prepare memory region success.");
 
   // control msg mr
   memset(&this->server_recv_msg, 0, sizeof(this->server_recv_msg));
@@ -545,26 +571,31 @@ status_t RDMACommunicator::start_server() {
       this->server_pd, &this->server_send_msg, sizeof(this->server_send_msg),
       (IBV_ACCESS_LOCAL_WRITE));
   if (!this->server_send_msg_mr) {
-    logError("Server :send_msg : failed to register send_msg buffer.");
+    logError("RDMACommunicator::start_server: send_msg failed to register "
+             "send_msg buffer.");
     return status_t::ERROR;
   }
   this->server_recv_msg_mr = rdma_buffer_register(
       this->server_pd, &this->server_recv_msg, sizeof(this->server_send_msg),
       (IBV_ACCESS_LOCAL_WRITE));
   if (!this->server_recv_msg_mr) {
-    logError("Server :recv_msg : failed to register recv_msg buffer.");
+    logError(
+        "RDMACommunicator::start_server: failed to register recv_msg buffer.");
     return status_t::ERROR;
   }
-  logInfo("Server prepare control msg region success.");
+  logInfo(
+      "RDMACommunicator::start_server: prepare control msg region success.");
 
   // 3.3. completion channel
   this->server_completion_channel =
       ibv_create_comp_channel(this->server_cm_newconnection_id->verbs);
   if (!this->server_completion_channel) {
-    logError("Failed to create an I/O completion event channel.");
+    logError("RDMACommunicator::start_server: Failed to create an I/O "
+             "completion event channel.");
     return status_t::ERROR;
   }
-  logDebug("An I/O completion event channel is created at %p.",
+  logDebug("RDMACommunicator::start_server: An I/O completion event channel is "
+           "created at %p.",
            this->server_completion_channel);
 
   // 3.4. completion queue
@@ -574,16 +605,19 @@ status_t RDMACommunicator::start_server() {
       this->server_completion_channel /* which IO completion channel */,
       0 /* signaling vector, not used here*/);
   if (!this->server_cq) {
-    logError("Failed to create a completion queue (cq).");
+    logError("RDMACommunicator::start_server: Failed to create a completion "
+             "queue (cq).");
     return status_t::ERROR;
   }
-  logDebug("Completion queue (CQ) is created at %p with %d elements.",
+  logDebug("RDMACommunicator::start_server: Completion queue (CQ) is created "
+           "at %p with %d elements.",
            this->server_cq, this->server_cq->cqe);
 
   // 3.5. req a event
   ret = ibv_req_notify_cq(this->server_cq, 0);
   if (ret) {
-    logError("Failed to request notifications on CQ.");
+    logError("RDMACommunicator::start_server: Failed to request notifications "
+             "on CQ.");
     return status_t::ERROR;
   }
 
@@ -601,26 +635,31 @@ status_t RDMACommunicator::start_server() {
   ret = rdma_create_qp(this->server_cm_newconnection_id, this->server_pd,
                        &this->server_qp_init_attr);
   if (ret) {
-    logError("Server: Failed to create QP.");
+    logError("RDMACommunicator::start_server: Failed to create QP.");
     return status_t::ERROR;
   }
   /* Save the reference for handy typing but is not required */
   this->server_qp = this->server_cm_newconnection_id->qp;
-  logDebug("Newconnection QP created at %p.", this->server_qp);
+  logDebug("RDMACommunicator::start_server: Newconnection QP created at %p.",
+           this->server_qp);
 
   // 4 accept new connection
-  logDebug("Waiting to accept a new connection.");
+  logDebug(
+      "RDMACommunicator::start_server: Waiting to accept a new connection.");
   sret = this->server_accept_newconnection();
   if (sret != status_t::SUCCESS) {
-    logError("Failed to accept a new connection.");
+    logError(
+        "RDMACommunicator::start_server: Failed to accept a new connection.");
     return status_t::ERROR;
   }
 
   // 5. send metadata to client
-  logDebug("Start to send metadata to the new connection.");
+  logDebug("RDMACommunicator::start_server: Start to send metadata to the new "
+           "connection.");
   sret = this->server_send_metadata_to_newconnection();
   if (sret != status_t::SUCCESS) {
-    logError("Failed to send metadata to newconnection.");
+    logError("RDMACommunicator::start_server: Failed to send metadata to "
+             "newconnection.");
     return status_t::ERROR;
   }
 
@@ -721,17 +760,20 @@ status_t RDMACommunicator::setup_client() {
   // 1. client event channel
   this->client_cm_event_channel = rdma_create_event_channel();
   if (!this->client_cm_event_channel) {
-    logError("Creating cm event channel failed.");
+    logError(
+        "RDMACommunicator::setup_client: Creating cm event channel failed.");
     return status_t::ERROR;
   }
-  logDebug("Client: RDMA CM event channel is created at : %p.",
+  logDebug("RDMACommunicator::setup_client: Client: RDMA CM event channel is "
+           "created at : %p.",
            this->client_cm_event_channel);
 
   // 2. client connection manage id
   ret = rdma_create_id(this->client_cm_event_channel, &this->client_cm_id, NULL,
                        RDMA_PS_TCP);
   if (ret) {
-    logError("Creating cm id failed with errno.");
+    logError(
+        "RDMACommunicator::setup_client: Creating cm id failed with errno.");
     return status_t::ERROR;
   }
 
@@ -741,52 +783,59 @@ status_t RDMACommunicator::setup_client() {
   ret = rdma_resolve_addr(this->client_cm_id, NULL,
                           (struct sockaddr *)&this->client_addr, 2000);
   if (ret) {
-    logError("Failed to resolve address.");
+    logError("RDMACommunicator::setup_client: Failed to resolve address.");
     return status_t::ERROR;
   }
-  logDebug("waiting for cm event: RDMA_CM_EVENT_ADDR_RESOLVED.");
+  logDebug("RDMACommunicator::setup_client: waiting for cm event: "
+           "RDMA_CM_EVENT_ADDR_RESOLVED.");
   // waiting if recvive the complement event
   sret = process_rdma_cm_event(this->client_cm_event_channel,
                                RDMA_CM_EVENT_ADDR_RESOLVED, &cm_event);
   if (sret != status_t::SUCCESS) {
-    logError("Failed to receive a valid event.");
+    logError(
+        "RDMACommunicator::setup_client: Failed to receive a valid event.");
     return sret;
   }
   // ack it
   ret = rdma_ack_cm_event(cm_event);
   if (ret) {
-    logError("Failed to acknowledge the CM event.");
+    logError(
+        "RDMACommunicator::setup_client: Failed to acknowledge the CM event.");
     return status_t::ERROR;
   }
-  logDebug("RDMA address is resolved.");
+  logDebug("RDMACommunicator::setup_client: RDMA address is resolved.");
 
   // resolve RDMA route
   ret = rdma_resolve_route(this->client_cm_id, 2000);
   if (ret) {
-    logError("Failed to resolve route.");
+    logError("RDMACommunicator::setup_client: Failed to resolve route.");
     return status_t::ERROR;
   }
-  logDebug("waiting for cm event: RDMA_CM_EVENT_ROUTE_RESOLVED.");
+  logDebug("RDMACommunicator::setup_client: waiting for cm event: "
+           "RDMA_CM_EVENT_ROUTE_RESOLVED.");
   sret = process_rdma_cm_event(this->client_cm_event_channel,
                                RDMA_CM_EVENT_ROUTE_RESOLVED, &cm_event);
   if (sret != status_t::SUCCESS) {
-    logError("Failed to receive a valid event.");
+    logError(
+        "RDMACommunicator::setup_client: Failed to receive a valid event.");
     return sret;
   }
   /* ack the event */
   ret = rdma_ack_cm_event(cm_event);
   if (ret) {
-    logError("Failed to acknowledge the CM event.");
+    logError(
+        "RDMACommunicator::setup_client: Failed to acknowledge the CM event.");
     return status_t::ERROR;
   }
-  logInfo("Trying to connect to server at : %s port: %d \n",
+  logInfo("RDMACommunicator::setup_client: Trying to connect to server at : %s "
+          "port: %d \n",
           inet_ntoa(this->client_addr.sin_addr),
           ntohs(this->client_addr.sin_port));
 
   // 4. create protection domain
   this->client_pd = ibv_alloc_pd(this->client_cm_id->verbs);
   if (!this->client_pd) {
-    logError("Failed to alloc pd.");
+    logError("RDMACommunicator::setup_client: Failed to alloc pd.");
     return status_t::ERROR;
   }
   // 5. prepare client's memory region
@@ -797,21 +846,26 @@ status_t RDMACommunicator::setup_client() {
       this->client_pd,
       this->share_buffer, // for transport : send/recv buffer is the buffer
       this->mem_size, access);
-  logInfo("rdma_buffer_register client_send_buffer_mr to pd");
+  logInfo("RDMACommunicator::setup_client: rdma_buffer_register "
+          "client_send_buffer_mr to pd");
   if (!this->client_send_buffer_mr) {
-    logError("Client :send : Failed to register the share_buffer.");
+    logError("RDMACommunicator::setup_client:send: Failed to register the send "
+             "share_buffer.");
     return status_t::ERROR;
   }
   this->client_recv_buffer_mr = rdma_buffer_register(
       this->client_pd,
       this->share_buffer, // for transport : send/recv buffer is the buffer
       this->mem_size, access);
-  logInfo("rdma_buffer_register client_recv_buffer_mr to pd");
+  logInfo("RDMACommunicator::setup_client:send: rdma_buffer_register "
+          "client_recv_buffer_mr to pd");
   if (!this->client_recv_buffer_mr) {
-    logError("Client :recv : Failed to register the share_buffer.");
+    logError("RDMACommunicator::setup_client:send: Failed to register the recv "
+             "share_buffer.");
     return status_t::ERROR;
   }
-  logInfo("Client prepare memory region success.");
+  logInfo("RDMACommunicator::setup_client:send: Client prepare memory region "
+          "success.");
 
   // control msg mr
   memset(&this->client_recv_msg, 0, sizeof(this->client_recv_msg));
@@ -820,44 +874,53 @@ status_t RDMACommunicator::setup_client() {
       this->client_pd, &this->client_send_msg, sizeof(this->client_send_msg),
       (IBV_ACCESS_LOCAL_WRITE));
   if (!this->client_send_msg_mr) {
-    logError("Client :send_msg : failed to register send_msg buffer.");
+    logError("RDMACommunicator::setup_client:send: failed to register send_msg "
+             "buffer.");
     return status_t::ERROR;
   }
   this->client_recv_msg_mr = rdma_buffer_register(
       this->client_pd, &this->client_recv_msg, sizeof(this->client_send_msg),
       (IBV_ACCESS_LOCAL_WRITE));
   if (!this->client_recv_msg_mr) {
-    logError("Client :recv_msg : failed to register recv_msg buffer.");
+    logError("RDMACommunicator::setup_client:send: failed to register recv_msg "
+             "buffer.");
     return status_t::ERROR;
   }
-  logInfo("Client prepare control msg region success.");
+  logInfo("RDMACommunicator::setup_client:send: Client prepare control msg "
+          "region success.");
 
   // 6. create completion channel
   this->client_completion_channel =
       ibv_create_comp_channel(this->client_cm_id->verbs);
   if (!this->client_completion_channel) {
-    logError("Failed to create IO completion event channel.");
+    logError("RDMACommunicator::setup_client:send: Failed to create IO "
+             "completion event channel.");
     return status_t::ERROR;
   }
-  logDebug("completion event channel created at : %p \n",
+  logDebug("RDMACommunicator::setup_client:send: completion event channel "
+           "created at : %p \n",
            this->client_completion_channel);
 
   // 7. create completion queue
   this->client_cq = ibv_create_cq(this->client_cm_id->verbs, CQ_CAPACITY, NULL,
                                   this->client_completion_channel, 0);
   if (!this->client_cq) {
-    logError("Failed to create CQ.");
+    logError("RDMACommunicator::setup_client:send: Failed to create CQ.");
     return status_t::ERROR;
   }
-  logDebug("CQ created at %p with %d elements.", client_cq, client_cq->cqe);
+  logDebug(
+      "RDMACommunicator::setup_client:send: CQ created at %p with %d elements.",
+      client_cq, client_cq->cqe);
   ret = ibv_req_notify_cq(client_cq, 0);
   if (ret) {
-    logError("Failed to request notifications.");
+    logError("RDMACommunicator::setup_client:send: Failed to request "
+             "notifications.");
     return status_t::ERROR;
   }
 
   // 8. create qp
-  logDebug("Create qp %p.", &this->client_qp_init_attr);
+  logDebug("RDMACommunicator::setup_client:send: Create qp %p.",
+           &this->client_qp_init_attr);
   memset(&this->client_qp_init_attr, 0, sizeof(this->client_qp_init_attr));
   this->client_qp_init_attr.cap.max_recv_sge =
       MAX_SGE; /* Maximum SGE per receive posting */
@@ -873,36 +936,42 @@ status_t RDMACommunicator::setup_client() {
   this->client_qp_init_attr.recv_cq = this->client_cq;
   this->client_qp_init_attr.send_cq = this->client_cq;
   /*Create a QP */
-  logDebug("cap.max_recv_sge is %d.",
+  logDebug("RDMACommunicator::setup_client:send: cap.max_recv_sge is %d.",
            this->client_qp_init_attr.cap.max_recv_sge);
   ret = rdma_create_qp(this->client_cm_id, this->client_pd,
                        &this->client_qp_init_attr);
   if (ret) {
-    logError("Client: Failed to create QP.");
+    logError(
+        "RDMACommunicator::setup_client:send: Client: Failed to create QP.");
     return status_t::ERROR;
   }
   this->client_qp = this->client_cm_id->qp;
-  logDebug("QP created at %p \n", this->client_qp);
+  logDebug("RDMACommunicator::setup_client:send: QP created at %p \n",
+           this->client_qp);
 
   // 9. pre post metadata recv buffer
   this->client_newserver_metadata_mr = rdma_buffer_register(
       this->client_pd, &this->client_newserver_metadata_attr,
       sizeof(this->client_newserver_metadata_attr), (IBV_ACCESS_LOCAL_WRITE));
   if (!this->client_newserver_metadata_mr) {
-    logError("Failed to setup the newserver metadata mr.");
+    logError("RDMACommunicator::setup_client:send: Failed to setup the "
+             "newserver metadata mr.");
     return status_t::ERROR;
   }
-  logDebug("Setup the newserver metadata mr is successful");
+  logDebug("RDMACommunicator::setup_client:send: Setup the newserver metadata "
+           "mr is successful");
 
   sret = post_recv_work_request(
       this->client_qp, (uint64_t)this->client_newserver_metadata_mr->addr,
       (uint32_t)this->client_newserver_metadata_mr->length,
       (uint32_t)this->client_newserver_metadata_mr->lkey, 1);
   if (sret != status_t::SUCCESS) {
-    logError("Failed to pre-post the receive buffer.");
+    logError("RDMACommunicator::setup_client:send: Failed to pre-post the "
+             "receive buffer.");
     return status_t::ERROR;
   }
-  logDebug("Pre-post receive newserver metadata is successful");
+  logDebug("RDMACommunicator::setup_client:send: Pre-post receive newserver "
+           "metadata is successful");
 
   return status_t::SUCCESS;
 }
@@ -927,27 +996,30 @@ status_t RDMACommunicator::start_client() {
   conn_param.retry_count = 3;
   ret = rdma_connect(this->client_cm_id, &conn_param);
   if (ret) {
-    logError("Failed to connect to remote host.");
+    logError(
+        "RDMACommunicator::start_client: Failed to connect to remote host.");
     return status_t::ERROR;
   }
-  logDebug("Waiting for cm event: RDMA_CM_EVENT_ESTABLISHED.");
+  logDebug("RDMACommunicator::start_client: Waiting for cm event: "
+           "RDMA_CM_EVENT_ESTABLISHED.");
   // retry while connect failed
   sret = process_rdma_cm_event(this->client_cm_event_channel,
                                RDMA_CM_EVENT_ESTABLISHED, &cm_event);
   if (sret != status_t::SUCCESS) {
-    logError("Failed to connect to server.");
+    logError("RDMACommunicator::start_client: Failed to connect to server.");
     return status_t::ERROR;
   }
   ret = rdma_ack_cm_event(cm_event);
   if (ret) {
-    logError("Failed to acknowledge cm event.");
+    logError("RDMACommunicator::start_client: Failed to acknowledge cm event.");
     return status_t::ERROR;
   }
-  logInfo("The client is connected successfully.");
+  logInfo(
+      "RDMACommunicator::start_client: The client is connected successfully.");
 
   // xchange metadata with server
   struct ibv_wc wc[2];
-  logInfo("Start xchange");
+  logInfo("RDMACommunicator::start_client: Start xchange");
 
   // prepare the metadata
   this->client_metadata_attr.address =
@@ -959,7 +1031,8 @@ status_t RDMACommunicator::start_client() {
       this->client_pd, &this->client_metadata_attr,
       sizeof(this->client_metadata_attr), IBV_ACCESS_LOCAL_WRITE);
   if (!this->client_metadata_mr) {
-    logError("Failed to register the client metadata buffer.");
+    logError("RDMACommunicator::start_client: Failed to register the client "
+             "metadata buffer.");
     return status_t::ERROR;
   }
   // post send work request
@@ -968,7 +1041,7 @@ status_t RDMACommunicator::start_client() {
       (uint32_t)this->client_metadata_mr->length,
       this->client_metadata_mr->lkey, 1, IBV_WR_SEND, IBV_SEND_SIGNALED);
   if (sret != status_t::SUCCESS) {
-    logError("Failed to send client metadata.");
+    logError("RDMACommunicator::start_client: Failed to send client metadata.");
     return sret;
   }
 
@@ -978,11 +1051,14 @@ status_t RDMACommunicator::start_client() {
   wc_count = this->process_work_completion_events(
       this->client_completion_channel, wc, 2);
   if (wc_count != 2) {
-    logError("We failed to get 2 work completions , wc_count = %d", wc_count);
+    logError("RDMACommunicator::start_client: We failed to get 2 work "
+             "completions , wc_count = %d",
+             wc_count);
     return status_t::ERROR;
   }
 
-  logDebug("Server sent us its buffer location and credentials, showing \n");
+  logDebug("RDMACommunicator::start_client: Server sent us its buffer location "
+           "and credentials, showing \n");
   show_rdma_buffer_attr(&this->client_newserver_metadata_attr);
   return status_t::SUCCESS;
 }
@@ -1190,13 +1266,15 @@ int RDMACommunicator::process_work_completion_events(
                     created before */
       &context); /* Associated CQ user context, which we did set */
   if (ret) {
-    logError("Failed to get next CQ event.");
+    logError("RDMACommunicator::process_work_completion_events: Failed to get "
+             "next CQ event.");
     return -ret;
   }
   /* Request for more notifications. */
   ret = ibv_req_notify_cq(cq_ptr, 0);
   if (ret) {
-    logError("Failed to request further notifications.");
+    logError("RDMACommunicator::process_work_completion_events: Failed to "
+             "request further notifications.");
     return -ret;
   }
   total_wc = 0;
@@ -1205,17 +1283,22 @@ int RDMACommunicator::process_work_completion_events(
                       max_wc - total_wc /* number of remaining WC elements*/,
                       wc + total_wc /* where to store */);
     if (ret < 0) {
-      logError("Failed to poll cq for wc due to %d.", ret);
+      logError("RDMACommunicator::process_work_completion_events: Failed to "
+               "poll cq for wc due to %d.",
+               ret);
       /* ret is errno here */
       return ret;
     }
     total_wc += ret;
   } while (total_wc < max_wc);
-  logDebug("%d WC are completed.", total_wc);
+  logDebug(
+      "RDMACommunicator::process_work_completion_events: %d WC are completed.",
+      total_wc);
   /* Check validity and status of I/O work completions */
   for (i = 0; i < total_wc; i++) {
     if (wc[i].status != IBV_WC_SUCCESS) {
-      logError("Work completion (WC) has error status: %s at index %d",
+      logError("RDMACommunicator::process_work_completion_events: Work "
+               "completion (WC) has error status: %s at index %d",
                ibv_wc_status_str(wc[i].status), i);
       /* return negative value */
       return -(wc[i].status);
@@ -1235,36 +1318,42 @@ RDMACommunicator::rdma_buffer_register(struct ibv_pd *pd, void *addr,
                                        enum ibv_access_flags permission) {
   struct ibv_mr *mr = NULL;
   if (!pd) {
-    logError("Protection domain is NULL, ignoring.");
+    logError("RDMACommunicator::rdma_buffer_register: Protection domain is "
+             "NULL, ignoring.");
     return NULL;
   }
 
-  logDebug("rdma_buffer_register: pd is %p, addr is %p, len is %d, permission "
+  logDebug("RDMACommunicator::rdma_buffer_register: rdma_buffer_register: pd "
+           "is %p, addr is %p, len is %d, permission "
            "is %d.",
            pd, addr, length, permission);
   mr = ibv_reg_mr(pd, addr, length, permission);
   if (!mr) {
-    logError("Failed to create mr on buffer.");
+    logError("RDMACommunicator::rdma_buffer_register: Failed to create mr on "
+             "buffer.");
     return NULL;
   }
-  logDebug("Registered: %p , len: %u , stag: 0x%x \n", mr->addr,
-           (unsigned int)mr->length, mr->lkey);
+  logDebug("RDMACommunicator::rdma_buffer_register: Registered: %p , len: %u , "
+           "stag: 0x%x \n",
+           mr->addr, (unsigned int)mr->length, mr->lkey);
   return mr;
 }
 
 void RDMACommunicator::rdma_buffer_deregister(struct ibv_mr *mr) {
   if (!mr) {
-    logError("Passed memory region is NULL, ignoring.");
+    logError("RDMACommunicator::rdma_buffer_register: Passed memory region is "
+             "NULL, ignoring.");
     return;
   }
-  logDebug("Deregistered: %p , len: %u , stag : 0x%x.", mr->addr,
-           (unsigned int)mr->length, mr->lkey);
+  logDebug("RDMACommunicator::rdma_buffer_register: Deregistered: %p , len: %u "
+           ", stag : 0x%x.",
+           mr->addr, (unsigned int)mr->length, mr->lkey);
   ibv_dereg_mr(mr);
 }
 
 void RDMACommunicator::show_rdma_buffer_attr(struct rdma_buffer_attr *attr) {
   if (!attr) {
-    logError("Passed attr is NULL\n");
+    logError("RDMACommunicator::show_rdma_buffer_attr: Passed attr is NULL\n");
     return;
   }
   logInfo("---------------------------------------------------------");
@@ -1288,7 +1377,8 @@ status_t RDMACommunicator::server_accept_newconnection() {
       sizeof(this->server_newconnection_metadata_attr),
       (IBV_ACCESS_LOCAL_WRITE));
   if (!this->server_newconnection_metadata_mr) {
-    logError("Failed to register new connection attr buffer.");
+    logError("RDMACommunicator::server_accept_newconnection: Failed to "
+             "register new connection attr buffer.");
     return status_t::ERROR;
   }
 
@@ -1299,10 +1389,12 @@ status_t RDMACommunicator::server_accept_newconnection() {
       this->server_newconnection_metadata_mr->lkey, 1);
   // for recv WR, opcode and flags are not needed.
   if (sret != status_t::SUCCESS) {
-    logError("Failed to pre-post the receive buffer.");
+    logError("RDMACommunicator::server_accept_newconnection: Failed to "
+             "pre-post the receive buffer.");
     return sret;
   }
-  logDebug("Receive buffer pre-posting is successful.");
+  logDebug("RDMACommunicator::server_accept_newconnection: Receive buffer "
+           "pre-posting is successful.");
 
   // 4.3 accept connection
   // 4.3.1 conn_parma
@@ -1312,28 +1404,33 @@ status_t RDMACommunicator::server_accept_newconnection() {
   conn_param.responder_resources = this->responder_resources;
   ret = rdma_accept(this->server_cm_newconnection_id, &conn_param);
   if (ret) {
-    logError("Failed to accept the connection.");
+    logError("RDMACommunicator::server_accept_newconnection: Failed to accept "
+             "the connection.");
     return status_t::ERROR;
   }
-  logDebug("Going to wait for : RDMA_CM_EVENT_ESTABLISHED event.");
+  logDebug("RDMACommunicator::server_accept_newconnection: wait for "
+           "RDMA_CM_EVENT_ESTABLISHED event.");
   // 4.3.2 expect an RDMA_CM_EVENT_ESTABLISHED
   sret = process_rdma_cm_event(this->server_cm_event_channel,
                                RDMA_CM_EVENT_ESTABLISHED, &cm_event);
   if (sret != status_t::SUCCESS) {
-    logError("Failed to get the cm event.");
+    logError("RDMACommunicator::server_accept_newconnection: Failed to get the "
+             "cm event.");
     return status_t::ERROR;
   }
 
   // 4.3.3 acknowledge the event
   ret = rdma_ack_cm_event(cm_event);
   if (ret) {
-    logError("Failed to acknowledge the cm event.");
+    logError("RDMACommunicator::server_accept_newconnection: Failed to "
+             "acknowledge the cm event.");
     return status_t::ERROR;
   }
   memcpy(&this->server_newconnection_addr,
          rdma_get_peer_addr(this->server_cm_newconnection_id),
          sizeof(struct sockaddr_in));
-  printf("A new connection is accepted from %s \n",
+  printf("RDMACommunicator::server_accept_newconnection: A new connection is "
+         "accepted from %s \n",
          inet_ntoa(this->server_newconnection_addr.sin_addr));
 
   return status_t::SUCCESS;
@@ -1348,13 +1445,16 @@ status_t RDMACommunicator::server_send_metadata_to_newconnection() {
   wc_count = this->process_work_completion_events(
       this->server_completion_channel, &wc, 1);
   if (wc_count != 1) {
-    logError("Failed to receive.");
+    logError("RDMACommunicator::server_send_metadata_to_newconnection: Failed "
+             "to receive.");
     return status_t::ERROR;
   }
   // show the attr
-  logInfo("Client side buffer information is received...");
+  logInfo("RDMACommunicator::server_send_metadata_to_newconnection: Client "
+          "side buffer information is received...");
   show_rdma_buffer_attr(&this->server_newconnection_metadata_attr);
-  logInfo("The client has requested buffer length of : %u bytes \n",
+  logInfo("RDMACommunicator::server_send_metadata_to_newconnection: The client "
+          "has requested buffer length of : %u bytes \n",
           this->server_newconnection_metadata_attr.length);
 
   // create server metadata info
@@ -1367,7 +1467,8 @@ status_t RDMACommunicator::server_send_metadata_to_newconnection() {
       &this->server_metadata_attr, // for metadata : attr is the buffer
       sizeof(this->server_metadata_attr), IBV_ACCESS_LOCAL_WRITE);
   if (!this->server_metadata_mr) {
-    logError("Server failed to create to hold server metadata \n");
+    logError("RDMACommunicator::server_send_metadata_to_newconnection: Server "
+             "failed to create to hold server metadata \n");
     return status_t::ERROR;
   }
 
@@ -1377,7 +1478,8 @@ status_t RDMACommunicator::server_send_metadata_to_newconnection() {
       sizeof(this->server_metadata_attr), this->server_metadata_mr->lkey, 1,
       IBV_WR_SEND, IBV_SEND_SIGNALED, 0, 0);
   if (sret != status_t::SUCCESS) {
-    logError("Posting of server metdata failed.");
+    logError("RDMACommunicator::server_send_metadata_to_newconnection: Posting "
+             "of server metdata failed.");
     return sret;
   }
 
@@ -1385,11 +1487,13 @@ status_t RDMACommunicator::server_send_metadata_to_newconnection() {
   wc_count = this->process_work_completion_events(
       this->server_completion_channel, &wc, 1);
   if (wc_count != 1) {
-    logError("Failed to send server metadata.");
+    logError("RDMACommunicator::server_send_metadata_to_newconnection: Failed "
+             "to send server metadata.");
     return status_t::ERROR;
   }
 
-  logDebug("Local buffer metadata has been sent to the client.");
+  logDebug("RDMACommunicator::server_send_metadata_to_newconnection: Local "
+           "buffer metadata has been sent to the client.");
   return status_t::SUCCESS;
 }
 

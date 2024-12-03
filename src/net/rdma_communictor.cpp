@@ -7,7 +7,8 @@ namespace hddt {
  */
 
 status_t RDMACommunicator::allocate_buffer() {
-  status_t sret = this->mem_op->allocate_buffer(&this->share_buffer, this->mem_size);
+  status_t sret =
+      this->mem_op->allocate_buffer(&this->share_buffer, this->mem_size);
   if (sret != status_t::SUCCESS) {
     logError(
         "RDMACommunicator::allocate_buffer mem_op->allocate_buffer err %s.",
@@ -59,12 +60,14 @@ status_t RDMACommunicator::Start() {
   if (this->is_client) {
     while (this->retry_count < this->retry_times) {
       sret_c = this->start_client();
-      if (sret_c == status_t::SUCCESS) break;
-      
+      if (sret_c == status_t::SUCCESS)
+        break;
+
       this->retry_count++;
-      std::this_thread::sleep_for(std::chrono::milliseconds(this->retry_delay_time));
+      std::this_thread::sleep_for(
+          std::chrono::milliseconds(this->retry_delay_time));
       logError("Retry to connect server. ...%d.", this->retry_count);
-      
+
       sret_c = this->setup_client(); // re setup client
       if (sret_c != status_t::SUCCESS) {
         logError("Setup client error. %s.", status_to_string(sret_c));
@@ -137,67 +140,73 @@ status_t RDMACommunicator::Close() {
  * @return A status_t object indicating the success or failure of the operation.
  */
 status_t RDMACommunicator::Send(void *input_buffer, const size_t send_flags) {
-    status_t sret = status_t::SUCCESS;
-    void *current_pointer = static_cast<char*>(input_buffer);
-    size_t accumulated_send_flags = 0;
-    
-    while (accumulated_send_flags < send_flags && this->client_can_write) {
-        size_t current_send_flags = std::min(send_flags - accumulated_send_flags, this->mem_size);
+  status_t sret = status_t::SUCCESS;
+  void *current_pointer = static_cast<char *>(input_buffer);
+  size_t accumulated_send_flags = 0;
 
-        logInfo("send_flags %ld. accumulated_send_flags %ld. current_send_flags %ld.", send_flags, accumulated_send_flags, current_send_flags);
-        
-        logDebug("Copying data from input buffer to shared buffer.");
-        this->mem_op->copy_device_to_device(this->share_buffer, current_pointer, current_send_flags);
+  while (accumulated_send_flags < send_flags && this->client_can_write) {
+    size_t current_send_flags =
+        std::min(send_flags - accumulated_send_flags, this->mem_size);
 
-        logDebug("Writing data to remote.");
-        sret = this->rdma_write(this->share_buffer, current_send_flags);
-        if (sret != status_t::SUCCESS) {
-            logError("Failed to write data to remote.");
-            return sret;
-        }
+    logInfo(
+        "send_flags %ld. accumulated_send_flags %ld. current_send_flags %ld.",
+        send_flags, accumulated_send_flags, current_send_flags);
 
-        this->client_can_write = false;
-        this->client_send_msg.flags = current_send_flags;
+    logDebug("Copying data from input buffer to shared buffer.");
+    this->mem_op->copy_device_to_device(this->share_buffer, current_pointer,
+                                        current_send_flags);
 
-        logDebug("Notifying remote that write is done.");
-        sret = this->send_rdma_msg(this->client_qp, this->client_completion_channel, this->client_send_msg_mr);
-        if (sret != status_t::SUCCESS) {
-            logError("Failed to send write done message.");
-            return sret;
-        }
-
-        logDebug("Waiting for server notification.");
-        sret = this->recv_rdma_msg(this->client_qp, this->client_completion_channel, this->client_recv_msg_mr);
-        if (sret == status_t::SUCCESS && this->client_recv_msg.flags > 0) {
-            logDebug("Server notifies client can write now.");
-            this->client_can_write = true;
-        } else {
-            logError("Failed to receive server notification or invalid flags.");
-            return sret;
-        }
-
-        current_pointer = static_cast<char*>(current_pointer) + current_send_flags;
-        accumulated_send_flags += current_send_flags;
-    }
-    
-    logInfo("Send finished!");
-    logDebug("Notifying remote that write is done.");
-    this->client_send_msg.flags = 0;
-    sret = this->send_rdma_msg(this->client_qp, this->client_completion_channel, this->client_send_msg_mr);
+    logDebug("Writing data to remote.");
+    sret = this->rdma_write(this->share_buffer, current_send_flags);
     if (sret != status_t::SUCCESS) {
-        logError("Failed to send write done message.");
-        return sret;
-    }
-    
-    if (!this->client_can_write) {
-        logError("Client is not ready to send data.");
-        sret = status_t::ERROR;
-        return sret;
+      logError("Failed to write data to remote.");
+      return sret;
     }
 
+    this->client_can_write = false;
+    this->client_send_msg.flags = current_send_flags;
+
+    logDebug("Notifying remote that write is done.");
+    sret = this->send_rdma_msg(this->client_qp, this->client_completion_channel,
+                               this->client_send_msg_mr);
+    if (sret != status_t::SUCCESS) {
+      logError("Failed to send write done message.");
+      return sret;
+    }
+
+    logDebug("Waiting for server notification.");
+    sret = this->recv_rdma_msg(this->client_qp, this->client_completion_channel,
+                               this->client_recv_msg_mr);
+    if (sret == status_t::SUCCESS && this->client_recv_msg.flags > 0) {
+      logDebug("Server notifies client can write now.");
+      this->client_can_write = true;
+    } else {
+      logError("Failed to receive server notification or invalid flags.");
+      return sret;
+    }
+
+    current_pointer = static_cast<char *>(current_pointer) + current_send_flags;
+    accumulated_send_flags += current_send_flags;
+  }
+
+  logInfo("Send finished!");
+  logDebug("Notifying remote that write is done.");
+  this->client_send_msg.flags = 0;
+  sret = this->send_rdma_msg(this->client_qp, this->client_completion_channel,
+                             this->client_send_msg_mr);
+  if (sret != status_t::SUCCESS) {
+    logError("Failed to send write done message.");
     return sret;
-}
+  }
 
+  if (!this->client_can_write) {
+    logError("Client is not ready to send data.");
+    sret = status_t::ERROR;
+    return sret;
+  }
+
+  return sret;
+}
 
 /**
  * @brief Receives a message from the client using RDMA.
@@ -208,78 +217,97 @@ status_t RDMACommunicator::Send(void *input_buffer, const size_t send_flags) {
  * @param flags Additional flags for the receive operation.
  * @return A status_t object indicating the success or failure of the operation.
  */
-status_t RDMACommunicator::Recv(void *output_buffer, const size_t buffer_size, size_t *recv_flags) {
-    status_t sret = status_t::SUCCESS;
-    const int CAN_WRITE_FLAG = 1;
-    void *current_pointer = static_cast<char*>(output_buffer); // size_t to char*
+status_t RDMACommunicator::Recv(void *output_buffer, const size_t buffer_size,
+                                size_t *recv_flags) {
+  status_t sret = status_t::SUCCESS;
+  const int CAN_WRITE_FLAG = 1;
+  void *current_pointer = static_cast<char *>(output_buffer); // size_t to char*
 
-    *recv_flags = 0;
-    this->server_send_msg.flags = CAN_WRITE_FLAG; // Set the flag to indicate that writing is allowed
-    this->server_recv_msg.flags = 1; // Set the flag to indicate that there need to recv data first time
+  *recv_flags = 0;
+  this->server_send_msg.flags =
+      CAN_WRITE_FLAG; // Set the flag to indicate that writing is allowed
+  this->server_recv_msg.flags =
+      1; // Set the flag to indicate that there need to recv data first time
 
-    while (this->server_recv_msg.flags >= 0) { // client waiting to send; client needs to send flag '0' to notify server to stop recving
-        if (this->server_can_recv) {
-            logInfo("recv_flags %ld. this->server_recv_msg.flags %ld.", *recv_flags, this->server_recv_msg.flags);
+  while (this->server_recv_msg.flags >=
+         0) { // client waiting to send; client needs to send flag '0' to notify
+              // server to stop recving
+    if (this->server_can_recv) {
+      logInfo("recv_flags %ld. this->server_recv_msg.flags %ld.", *recv_flags,
+              this->server_recv_msg.flags);
 
-            logDebug("Attempting to receive message from client.");
-            sret = this->recv_rdma_msg(this->server_qp, this->server_completion_channel, this->server_recv_msg_mr);
-            if (sret == status_t::SUCCESS) {
-                logDebug("Message received from client with flags = %ld.", this->server_recv_msg.flags);
-                if (this->server_recv_msg.flags > 0) {
-                    this->server_can_recv = false;  // Update the receive status if valid data is received
+      logDebug("Attempting to receive message from client.");
+      sret =
+          this->recv_rdma_msg(this->server_qp, this->server_completion_channel,
+                              this->server_recv_msg_mr);
+      if (sret == status_t::SUCCESS) {
+        logDebug("Message received from client with flags = %ld.",
+                 this->server_recv_msg.flags);
+        if (this->server_recv_msg.flags > 0) {
+          this->server_can_recv =
+              false; // Update the receive status if valid data is received
 
-                    // Ensure the received size does not exceed buffer size
-                    size_t recv_size = std::min(this->mem_size, this->server_recv_msg.flags);
-                    *recv_flags += recv_size;
-                    logInfo(">>>>>>>>>>>>> recv_flags %ld. recv_size %ld.", *recv_flags, recv_size);
-                    if (*recv_flags > buffer_size) {
-                        logError("Received more data than the buffer size.");
-                        *recv_flags = buffer_size;  // Adjust *recv_flags to buffer_size
-                    } else {
-                        // Copy data from shared buffer to output_buffer
-                        this->mem_op->copy_device_to_device(current_pointer, this->share_buffer, recv_size);
-                        current_pointer = static_cast<char*>(current_pointer) + recv_size;
-                        logInfo("Server received data from client: length = %ld.", this->server_recv_msg.flags);
-                    }
+          // Ensure the received size does not exceed buffer size
+          size_t recv_size =
+              std::min(this->mem_size, this->server_recv_msg.flags);
+          *recv_flags += recv_size;
+          logInfo(">>>>>>>>>>>>> recv_flags %ld. recv_size %ld.", *recv_flags,
+                  recv_size);
+          if (*recv_flags > buffer_size) {
+            logError("Received more data than the buffer size.");
+            *recv_flags = buffer_size; // Adjust *recv_flags to buffer_size
+          } else {
+            // Copy data from shared buffer to output_buffer
+            this->mem_op->copy_device_to_device(current_pointer,
+                                                this->share_buffer, recv_size);
+            current_pointer = static_cast<char *>(current_pointer) + recv_size;
+            logInfo("Server received data from client: length = %ld.",
+                    this->server_recv_msg.flags);
+          }
 
-                } else { // this->server_recv_msg.flags == 0
-                    logDebug("Client notifies server to stop receiving.");
-                    break;  // Exit the loop as the client has indicated no more data
-                }
-            } else {
-                logError("Failed to receive message from client.");
-                return sret;
-            }
+        } else { // this->server_recv_msg.flags == 0
+          logDebug("Client notifies server to stop receiving.");
+          break; // Exit the loop as the client has indicated no more data
         }
-
-        // Always send 'can write' message to client after receiving data
-        logDebug("Sending 'can write' message to client.");
-        sret = this->send_rdma_msg(this->server_qp, this->server_completion_channel, this->server_send_msg_mr);
-        if (sret != status_t::SUCCESS) {
-            logError("Failed to send 'can write' message to client.");
-            return sret;
-        }
-
-        this->server_can_recv = true;  // Restart to receive data from client
-
-        // 0 or value < buffer_size, exit the loop
-        if (this->server_recv_msg.flags < this->mem_size) {
-            logDebug("Last time receiving, exiting receive loop.");
-            // Ack the last message from client
-            sret = this->recv_rdma_msg(this->server_qp, this->server_completion_channel, this->server_recv_msg_mr);
-            if (sret == status_t::SUCCESS) {
-                logDebug("Consume the last message from client with flags = %ld.", this->server_recv_msg.flags);}
-            break;
-        }
-
-        // If the total received size exceeds the buffer size, stop the loop
-        if (*recv_flags >= buffer_size) {
-            logDebug("Received enough data, exiting receive loop.");
-            break;
-        }
+      } else {
+        logError("Failed to receive message from client.");
+        return sret;
+      }
     }
 
-    return status_t::SUCCESS;
+    // Always send 'can write' message to client after receiving data
+    logDebug("Sending 'can write' message to client.");
+    sret = this->send_rdma_msg(this->server_qp, this->server_completion_channel,
+                               this->server_send_msg_mr);
+    if (sret != status_t::SUCCESS) {
+      logError("Failed to send 'can write' message to client.");
+      return sret;
+    }
+
+    this->server_can_recv = true; // Restart to receive data from client
+
+    // 0 or value < buffer_size, exit the loop
+    if (this->server_recv_msg.flags < this->mem_size) {
+      logDebug("Last time receiving, exiting receive loop.");
+      // Ack the last message from client
+      sret =
+          this->recv_rdma_msg(this->server_qp, this->server_completion_channel,
+                              this->server_recv_msg_mr);
+      if (sret == status_t::SUCCESS) {
+        logDebug("Consume the last message from client with flags = %ld.",
+                 this->server_recv_msg.flags);
+      }
+      break;
+    }
+
+    // If the total received size exceeds the buffer size, stop the loop
+    if (*recv_flags >= buffer_size) {
+      logDebug("Received enough data, exiting receive loop.");
+      break;
+    }
+  }
+
+  return status_t::SUCCESS;
 }
 
 status_t RDMACommunicator::rdma_write(void *addr, size_t length) {

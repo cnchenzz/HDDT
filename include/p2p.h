@@ -48,7 +48,7 @@ enum class CommunicatorType {
 
 struct ControlMessage {
   size_t flags; // notify peer the lens of data / also 0 means false
-             // todo: more control message
+                // todo: more control message
 };
 
 /*
@@ -100,7 +100,8 @@ public:
    *         - Returns status_t::SUCCESS if the operation is successful
    *         - Returns status_t::ERROR if the operation fails
    */
-  virtual status_t Recv(void *output_buffer, const size_t buffer_size, size_t *recv_flags) = 0;
+  virtual status_t Recv(void *output_buffer, const size_t buffer_size,
+                        size_t *recv_flags) = 0;
 
   /**
    * @brief Start Communicator
@@ -151,7 +152,8 @@ public:
   ~TCPCommunicator() { this->free_buffer(); }
 
   status_t Send(void *input_buffer, const size_t send_flags) override;
-  status_t Recv(void *output_buffer, const size_t buffer_size, size_t *recv_flags) override;
+  status_t Recv(void *output_buffer, const size_t buffer_size,
+                size_t *recv_flags) override;
 
   status_t Start() override;
   status_t Close() override;
@@ -253,9 +255,10 @@ private:
 public:
   RDMACommunicator(Memory *mem_op, bool is_server = false,
                    bool is_client = false, std::string client_ip = "0.0.0.0",
-                   uint16_t client_port = RDMA_DEFAULT_PORT, std::string server_ip = "0.0.0.0",
-                   uint16_t server_port = RDMA_DEFAULT_PORT, int retry_times = 10,
-                   int retry_delay_time = 1000)
+                   uint16_t client_port = RDMA_DEFAULT_PORT,
+                   std::string server_ip = "0.0.0.0",
+                   uint16_t server_port = RDMA_DEFAULT_PORT,
+                   int retry_times = 10, int retry_delay_time = 1000)
       : Communicator(mem_op), is_server(is_server), is_client(is_client),
         retry_times(retry_times), retry_delay_time(retry_delay_time) {
     status_t sret;
@@ -265,17 +268,19 @@ public:
       logError("client_ip must be set for client.");
       throw std::runtime_error("Client_ip must be set for client.");
     }
-    sret = this->init_sockaddr(client_ip.c_str(), client_port, server_ip.c_str(),
-                        server_port);
+    sret = this->init_sockaddr(client_ip.c_str(), client_port,
+                               server_ip.c_str(), server_port);
     if (sret != status_t::SUCCESS) {
-      throw std::runtime_error("Failed to allocate buffer for RDMACommunicator.");
+      throw std::runtime_error(
+          "Failed to allocate buffer for RDMACommunicator.");
     }
     logDebug("RDMACommunicator init_sockaddr success.");
 
     // init buffer
     sret = this->allocate_buffer();
     if (sret != status_t::SUCCESS) {
-      throw std::runtime_error("Failed to allocate buffer for RDMACommunicator.");
+      throw std::runtime_error(
+          "Failed to allocate buffer for RDMACommunicator.");
     }
     logDebug("RDMACommunicator allocate_buffer success: %p.",
              this->share_buffer);
@@ -283,14 +288,16 @@ public:
     if (is_server) {
       sret = setup_server();
       if (sret != status_t::SUCCESS) {
-        throw std::runtime_error("Failed to setup_server for RDMACommunicator.");
+        throw std::runtime_error(
+            "Failed to setup_server for RDMACommunicator.");
       }
       logDebug("RDMACommunicator setup_server success.");
     }
     if (is_client) {
       sret = setup_client();
       if (sret != status_t::SUCCESS) {
-        throw std::runtime_error("Failed to setup_client for RDMACommunicator.");
+        throw std::runtime_error(
+            "Failed to setup_client for RDMACommunicator.");
       }
       logDebug("RDMACommunicator setup_client success.");
     }
@@ -306,7 +313,8 @@ public:
   /* IO Interface */
 
   status_t Send(void *input_buffer, const size_t send_flags) override;
-  status_t Recv(void *output_buffer, const size_t buffer_size, size_t *recv_flags) override;
+  status_t Recv(void *output_buffer, const size_t buffer_size,
+                size_t *recv_flags) override;
 
   /* Control interface */
 
@@ -405,13 +413,12 @@ private:
 };
 
 // Factory Function to create a communicator
-[[nodiscard]] std::unique_ptr<Communicator>
-CreateCommunicator(Memory *mem_op,
-                   CommunicatorType comm_type = CommunicatorType::DEFAULT,
-                   bool is_server = false, bool is_client = false,
-                   std::string client_ip = "0.0.0.0", uint16_t client_port = RDMA_DEFAULT_PORT,
-                   std::string server_ip = "0.0.0.0", uint16_t server_port = RDMA_DEFAULT_PORT,
-                   int retry_times = 10, int retry_delay_time = 1000);
+[[nodiscard]] std::unique_ptr<Communicator> CreateCommunicator(
+    Memory *mem_op, CommunicatorType comm_type = CommunicatorType::DEFAULT,
+    bool is_server = false, bool is_client = false,
+    std::string client_ip = "0.0.0.0", uint16_t client_port = RDMA_DEFAULT_PORT,
+    std::string server_ip = "0.0.0.0", uint16_t server_port = RDMA_DEFAULT_PORT,
+    int retry_times = 10, int retry_delay_time = 1000);
 
 } // namespace hddt
 

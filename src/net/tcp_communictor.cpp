@@ -63,7 +63,8 @@ status_t TCPCommunicator::free_buffer() {
 status_t TCPCommunicator::Send(void *input_buffer, const size_t send_flags) {
   return status_t::SUCCESS;
 }
-status_t TCPCommunicator::Recv(void *output_buffer, const size_t buffer_size, size_t *recv_flags) {
+status_t TCPCommunicator::Recv(void *output_buffer, const size_t buffer_size,
+                               size_t *recv_flags) {
   return status_t::SUCCESS;
 }
 

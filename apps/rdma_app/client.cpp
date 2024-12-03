@@ -22,7 +22,7 @@ int main() {
   if (sret != status_t::SUCCESS)
     return 0;
 
-  uint8_t data[] = "Hello!";
+  uint8_t data[] = "HelloHelloHelloHelloHelloHelloHelloHello!";
 
   void *send;
   logDebug("allocate input buffer");
@@ -34,15 +34,15 @@ int main() {
   printf("Client Write Data: %s\n", host_data);
 
   sleep(2); // we need to wait for the server and client to finish their setup.
-  con->Send(send, 1024, sizeof(data));
+  con->Send(send, sizeof(data));
 
   sleep(2);
-  uint8_t data2[] = "Bye!";
+  uint8_t data2[] = "ByeByeByeByeByeByeByeByeByeBye!";
   mem_ops->copy_host_to_device(send, data2, sizeof(data2));
   char host_data2[sizeof(data2)];
   mem_ops->copy_device_to_host(host_data2, send, sizeof(data2));
   printf("Client Write Data: %s\n", host_data2);
-  con->Send(send, 1024, sizeof(data2));
+  con->Send(send, sizeof(data2));
 
   sleep(2);
   con->Close();

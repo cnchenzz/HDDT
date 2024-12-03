@@ -27,13 +27,14 @@ int main() {
   char host_data[1024];
 
   void *recv;
+  size_t flags;
   mem_ops->allocate_buffer(&recv, 1024);
-  con->Recv(recv, 1024, 512); // 阻塞直到收到数据
-  mem_ops->copy_device_to_host(host_data, recv, 512);
+  con->Recv(recv, 1024, &flags); //
+  mem_ops->copy_device_to_host(host_data, recv, flags);
   printf("Server get Data: %s\n", host_data);
 
-  con->Recv(recv, 1024, 512); // 阻塞直到收到数据
-  mem_ops->copy_device_to_host(host_data, recv, 512);
+  con->Recv(recv, 1024, &flags); //
+  mem_ops->copy_device_to_host(host_data, recv, flags);
   printf("Server get Data: %s\n", host_data);
 
   // sleep(1);

@@ -47,7 +47,7 @@ enum class CommunicatorType {
 }; // todo: more
 
 struct ControlMessage {
-  int flags; // notify peer the lens of data / also 0 means false
+  size_t flags; // notify peer the lens of data / also 0 means false
              // todo: more control message
 };
 
@@ -79,29 +79,28 @@ public:
    *
    * @param input_buffer The address of the user's input date buffer that
    * contains data to be sent
-   * @param size The length of the buffer
-   * @param flags The lenght of the data to be sent
+   * @param send_flags The lenght of the data to be sent
    *
    * @return The status code of the operation result
    *         - Returns status_t::SUCCESS if the operation is successful
    *         - Returns status_t::ERROR if the operation fails
    */
-  virtual status_t Send(void *input_buffer, size_t size, size_t flags) = 0;
+  virtual status_t Send(void *input_buffer, const size_t send_flags) = 0;
 
   /**
    * @brief Recv data from remote
    *
    * High level Recv by using RDMA Write/Read with RDMA send/recv.
    *
-   * @param input_buffer The address of the user data buffer will be saved.
-   * @param size The length of the buffer
-   * @param flags The lenght of data has been received
+   * @param output_buffer The address of the user data buffer will be saved.
+   * @param buffer_size The length of the buffer
+   * @param recv_flags The lenght of data has been received
    *
    * @return The status code of the operation result
    *         - Returns status_t::SUCCESS if the operation is successful
    *         - Returns status_t::ERROR if the operation fails
    */
-  virtual status_t Recv(void *output_buffer, size_t size, size_t flags) = 0;
+  virtual status_t Recv(void *output_buffer, const size_t buffer_size, size_t *recv_flags) = 0;
 
   /**
    * @brief Start Communicator
@@ -151,8 +150,8 @@ public:
   };
   ~TCPCommunicator() { this->free_buffer(); }
 
-  status_t Send(void *input_buffer, size_t size, size_t flags) override;
-  status_t Recv(void *output_buffer, size_t size, size_t flags) override;
+  status_t Send(void *input_buffer, const size_t send_flags) override;
+  status_t Recv(void *output_buffer, const size_t buffer_size, size_t *recv_flags) override;
 
   status_t Start() override;
   status_t Close() override;
@@ -306,8 +305,8 @@ public:
 
   /* IO Interface */
 
-  status_t Send(void *input_buffer, size_t size, size_t flags) override;
-  status_t Recv(void *output_buffer, size_t size, size_t flags) override;
+  status_t Send(void *input_buffer, const size_t send_flags) override;
+  status_t Recv(void *output_buffer, const size_t buffer_size, size_t *recv_flags) override;
 
   /* Control interface */
 

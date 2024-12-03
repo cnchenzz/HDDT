@@ -5,6 +5,8 @@
 #include <mem.h>
 #include <string>
 
+#include <csignal>
+
 #include <infiniband/verbs.h>
 #include <rdma/rdma_cma.h>
 
@@ -44,6 +46,11 @@ enum class CommunicatorType {
   TCP
 }; // todo: more
 
+struct ControlMessage {
+  size_t flags; // notify peer the lens of data / also 0 means false
+                // todo: more control message
+};
+
 /*
 Communicator: P2P Transport
 implemented by TCP and RDMA(libverbs)
@@ -52,8 +59,17 @@ class Communicator {
 protected:
   Memory *mem_op;
 
+  static void signalHandler(int signal) {
+    if (signal == SIGINT) {
+      std::cout << "\nCommunicator Quit...\n";
+      std::exit(0);
+    }
+  }
+
 public:
-  inline Communicator(Memory *mem_op) : mem_op(mem_op) {}
+  inline Communicator(Memory *mem_op) : mem_op(mem_op) {
+    std::signal(SIGINT, signalHandler);
+  }
   virtual inline ~Communicator() { this->mem_op->free(); }
 
   /**
@@ -63,29 +79,29 @@ public:
    *
    * @param input_buffer The address of the user's input date buffer that
    * contains data to be sent
-   * @param size The length of the buffer
-   * @param flags The lenght of the data to be sent
+   * @param send_flags The lenght of the data to be sent
    *
    * @return The status code of the operation result
    *         - Returns status_t::SUCCESS if the operation is successful
    *         - Returns status_t::ERROR if the operation fails
    */
-  virtual status_t Send(void *input_buffer, size_t size, size_t flags) = 0;
+  virtual status_t Send(void *input_buffer, const size_t send_flags) = 0;
 
   /**
    * @brief Recv data from remote
    *
    * High level Recv by using RDMA Write/Read with RDMA send/recv.
    *
-   * @param input_buffer The address of the user data buffer will be saved.
-   * @param size The length of the buffer
-   * @param flags The lenght of data has been received
+   * @param output_buffer The address of the user data buffer will be saved.
+   * @param buffer_size The length of the buffer
+   * @param recv_flags The lenght of data has been received
    *
    * @return The status code of the operation result
    *         - Returns status_t::SUCCESS if the operation is successful
    *         - Returns status_t::ERROR if the operation fails
    */
-  virtual status_t Recv(void *output_buffer, size_t size, size_t flags) = 0;
+  virtual status_t Recv(void *output_buffer, const size_t buffer_size,
+                        size_t *recv_flags) = 0;
 
   /**
    * @brief Start Communicator
@@ -135,8 +151,9 @@ public:
   };
   ~TCPCommunicator() { this->free_buffer(); }
 
-  status_t Send(void *input_buffer, size_t size, size_t flags) override;
-  status_t Recv(void *output_buffer, size_t size, size_t flags) override;
+  status_t Send(void *input_buffer, const size_t send_flags) override;
+  status_t Recv(void *output_buffer, const size_t buffer_size,
+                size_t *recv_flags) override;
 
   status_t Start() override;
   status_t Close() override;
@@ -170,11 +187,11 @@ private:
   struct rdma_cm_id *client_cm_id = NULL;
 
   // queue pair
-  struct ibv_qp *server_newconnection_qp = NULL;
+  struct ibv_qp *server_qp = NULL; // server_newconnection_qp
   struct ibv_qp *client_qp = NULL;
 
   // Protect Domain
-  struct ibv_pd *server_newconnection_pd = NULL;
+  struct ibv_pd *server_pd = NULL; // server_newconnection_pd
   struct ibv_pd *client_pd = NULL;
 
   // Memory Region
@@ -217,70 +234,90 @@ private:
   size_t mem_size = BUFFER_SIZE;
   void *share_buffer;
 
-  bool is_buffer_ok = false;
   int retry_times;
   int retry_delay_time;
   int retry_count = 0;
+  bool is_buffer_ok = false; // if buffer is allocated
+  bool is_running = true;    // if the communicator is running
+  bool client_can_write = true;
+  bool server_can_recv = true;
 
-  bool is_closed = true;
+  // control msg
+  struct ControlMessage client_send_msg; // msg send buffer
+  struct ibv_mr *client_send_msg_mr = NULL;
+  struct ControlMessage client_recv_msg; // msg recv buffer
+  struct ibv_mr *client_recv_msg_mr = NULL;
+  struct ControlMessage server_recv_msg; // msg send buffer
+  struct ibv_mr *server_recv_msg_mr = NULL;
+  struct ControlMessage server_send_msg; // msg recv buffer
+  struct ibv_mr *server_send_msg_mr = NULL;
 
 public:
   RDMACommunicator(Memory *mem_op, bool is_server = false,
-                   bool is_client = false, std::string client_ip = "",
-                   uint16_t client_port = 0, std::string server_ip = "",
-                   uint16_t server_port = 0, int retry_times = 10,
-                   int retry_delay_time = 1000)
+                   bool is_client = false, std::string client_ip = "0.0.0.0",
+                   uint16_t client_port = RDMA_DEFAULT_PORT,
+                   std::string server_ip = "0.0.0.0",
+                   uint16_t server_port = RDMA_DEFAULT_PORT,
+                   int retry_times = 10, int retry_delay_time = 1000)
       : Communicator(mem_op), is_server(is_server), is_client(is_client),
         retry_times(retry_times), retry_delay_time(retry_delay_time) {
     status_t sret;
 
     // init sockaddr
-    if (server_ip == "")
-      server_ip = "0.0.0.0";
-    if (server_port == 0)
-      server_port = RDMA_DEFAULT_PORT;
-    if (is_client && client_ip == "") {
+    if (is_client && client_ip == "0.0.0.0") { // should connect to local server
       logError("client_ip must be set for client.");
-      return;
+      throw std::runtime_error("Client_ip must be set for client.");
     }
-    if (client_port == 0)
-      client_port = RDMA_DEFAULT_PORT;
-    this->init_sockaddr(client_ip.c_str(), client_port, server_ip.c_str(),
-                        server_port);
+    sret = this->init_sockaddr(client_ip.c_str(), client_port,
+                               server_ip.c_str(), server_port);
+    if (sret != status_t::SUCCESS) {
+      throw std::runtime_error(
+          "Failed to allocate buffer for RDMACommunicator.");
+    }
     logDebug("RDMACommunicator init_sockaddr success.");
 
     // init buffer
     sret = this->allocate_buffer();
     if (sret != status_t::SUCCESS) {
-      return;
+      throw std::runtime_error(
+          "Failed to allocate buffer for RDMACommunicator.");
     }
     logDebug("RDMACommunicator allocate_buffer success: %p.",
              this->share_buffer);
 
     if (is_server) {
-      logDebug("RDMACommunicator using server.");
-      setup_server();
+      sret = setup_server();
+      if (sret != status_t::SUCCESS) {
+        throw std::runtime_error(
+            "Failed to setup_server for RDMACommunicator.");
+      }
       logDebug("RDMACommunicator setup_server success.");
     }
     if (is_client) {
-      logDebug("RDMACommunicator using client.");
-      setup_client();
+      sret = setup_client();
+      if (sret != status_t::SUCCESS) {
+        throw std::runtime_error(
+            "Failed to setup_client for RDMACommunicator.");
+      }
       logDebug("RDMACommunicator setup_client success.");
     }
   };
 
   ~RDMACommunicator() {
     /* if forgot close, it will be force closed here. */
-    if (!this->is_closed) {
+    if (this->is_running) {
       this->Close();
     }
   }
 
   /* IO Interface */
-  status_t Send(void *input_buffer, size_t size, size_t flags) override;
-  status_t Recv(void *output_buffer, size_t size, size_t flags) override;
+
+  status_t Send(void *input_buffer, const size_t send_flags) override;
+  status_t Recv(void *output_buffer, const size_t buffer_size,
+                size_t *recv_flags) override;
 
   /* Control interface */
+
   status_t Start() override;
   status_t Close() override;
 
@@ -298,7 +335,7 @@ private:
    *         - Returns status_t::SUCCESS if the operation is successful
    *         - Returns status_t::ERROR if the operation fails
    */
-  status_t write(void *addr, size_t length);
+  status_t rdma_write(void *addr, size_t length);
 
   /**
    * @brief Read data from a remote memory address
@@ -313,17 +350,27 @@ private:
    *         - Returns status_t::SUCCESS if the operation is successful
    *         - Returns status_t::ERROR if the operation fails
    */
-  status_t read(void *addr, size_t length);
+  status_t rdma_read(void *addr, size_t length);
+
+  status_t send_rdma_msg(ibv_qp *qp, struct ibv_comp_channel *comp_channel,
+                         ibv_mr *msg_mr);
+  status_t recv_rdma_msg(ibv_qp *qp, struct ibv_comp_channel *comp_channel,
+                         ibv_mr *msg_mr);
 
   status_t allocate_buffer();
   status_t free_buffer();
+
   status_t init_sockaddr(const char *client_ip, uint16_t client_port,
                          const char *server_ip, uint16_t server_port);
-  status_t post_work_request(struct ibv_qp *qp, uint64_t sge_addr,
-                             size_t sge_length, uint32_t sge_lkey, int sge_num,
-                             ibv_wr_opcode opcode, ibv_send_flags send_flags,
-                             uint32_t remote_key, uint64_t remote_addr,
-                             bool is_send);
+  status_t post_send_work_request(struct ibv_qp *qp, uint64_t sge_addr,
+                                  size_t sge_length, uint32_t sge_lkey,
+                                  int sge_num, ibv_wr_opcode opcode,
+                                  ibv_send_flags send_flags,
+                                  uint32_t remote_key = 0,
+                                  uint64_t remote_addr = 0);
+  status_t post_recv_work_request(struct ibv_qp *qp, uint64_t sge_addr,
+                                  size_t sge_length, uint32_t sge_lkey,
+                                  int sge_num);
   status_t process_rdma_cm_event(struct rdma_event_channel *echannel,
                                  enum rdma_cm_event_type expected_event,
                                  struct rdma_cm_event **cm_event);
@@ -348,31 +395,30 @@ private:
    * returns status_t::ERROR.
    */
   status_t setup_server();
-
-  /**
-   * @brief Starts the RDMA server
-   *
-   * Initiates the RDMA server and waits for client connections.
-   *
-   * @return The status of starting the server, returns status_t::SUCCESS on
-   * success, or status_t::ERROR on failure.
-   */
   status_t start_server();
   status_t close_server();
 
+  /**
+   * @brief Set up the client side of the RDMA communicator
+   *
+   * Configure the client side of the RDMA communicator, including creating an
+   * event channel, creating an RDMA ID and other resources.
+   *
+   * @return Returns status_t::SUCCESS if the setup is successful, otherwise
+   * returns status_t::ERROR.
+   */
   status_t setup_client();
   status_t start_client();
   status_t close_client();
 };
 
-// Factory Function
-[[nodiscard]] std::unique_ptr<Communicator>
-CreateCommunicator(Memory *mem_op,
-                   CommunicatorType comm_type = CommunicatorType::DEFAULT,
-                   bool is_server = false, bool is_client = false,
-                   std::string client_ip = "", uint16_t client_port = 0,
-                   std::string server_ip = "", uint16_t server_port = 0,
-                   int retry_times = 10, int retry_delay_time = 1000);
+// Factory Function to create a communicator
+[[nodiscard]] std::unique_ptr<Communicator> CreateCommunicator(
+    Memory *mem_op, CommunicatorType comm_type = CommunicatorType::DEFAULT,
+    bool is_server = false, bool is_client = false,
+    std::string client_ip = "0.0.0.0", uint16_t client_port = RDMA_DEFAULT_PORT,
+    std::string server_ip = "0.0.0.0", uint16_t server_port = RDMA_DEFAULT_PORT,
+    int retry_times = 10, int retry_delay_time = 1000);
 
 } // namespace hddt
 

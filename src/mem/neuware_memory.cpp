@@ -18,7 +18,7 @@ status_t NeuwareMemory::allocate_buffer(void **addr, size_t size) {
     return status_t::UNSUPPORT;
   }
   logInfo("Allocate memory using cnMalloc.");
-  ret = cnMalloc(&this->mlu_addr, buf_size);
+  ret = cnMallocPeerAble(&this->mlu_addr, buf_size);
   if (ret != CN_SUCCESS) {
     logError("failed to allocate memory.");
     return status_t::ERROR;

@@ -1,18 +1,12 @@
 #include <p2p.h>
 #include <csignal>
-#include <mutex>
-#include <condition_variable>
 
 namespace hddt {
 
-std::atomic<bool> paused{false};
-std::mutex mtx;
-
-// 信号处理函数
 void signalHandler(int signal) {
     if (signal == SIGINT) {
-        paused = true;
-        std::cout << "\nProgram paused. Quit...\n";
+        std::cout << "\nProgram Quit...\n";
+        std::exit(0);
     }
 }
 
@@ -72,7 +66,7 @@ status_t RDMACommunicator::init_sockaddr(const char *client_ip,
 status_t RDMACommunicator::Start() {
   status_t sret = status_t::SUCCESS;
   std::atomic<status_t> server_sret(status_t::SUCCESS);
-  std::signal(SIGINT, signalHandler); // set signal handler, use paused to stop all threads
+  std::signal(SIGINT, signalHandler); // set signal handler, stop current process.
 
   std::thread server_thread([this, &server_sret] {
     if (this->is_server) {
@@ -175,7 +169,8 @@ status_t RDMACommunicator::Send(void *input_buffer, size_t size, size_t send_fla
     }
   } else {
     logError("Client is not ready to send data.");
-    return status_t::ERROR;
+    sret = status_t::ERROR;
+    return sret;
   }
 
   return sret;

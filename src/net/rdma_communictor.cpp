@@ -7,15 +7,7 @@ namespace hddt {
  */
 
 status_t RDMACommunicator::allocate_buffer() {
-  status_t sret = status_t::SUCCESS;
-  sret = this->mem_op->allocate_buffer(&this->share_buffer, this->mem_size);
-
-  // buffer init 0
-
-  char host_data[1024];
-  this->mem_op->copy_device_to_host(host_data, this->share_buffer, 512);
-  logInfo("buffer init Data: %s\n", host_data);
-
+  status_t sret = this->mem_op->allocate_buffer(&this->share_buffer, this->mem_size);
   if (sret != status_t::SUCCESS) {
     logError(
         "RDMACommunicator::allocate_buffer mem_op->allocate_buffer err %s.",
@@ -27,8 +19,7 @@ status_t RDMACommunicator::allocate_buffer() {
 };
 
 status_t RDMACommunicator::free_buffer() {
-  status_t sret = status_t::SUCCESS;
-  sret = this->mem_op->free_buffer(this->share_buffer);
+  status_t sret = this->mem_op->free_buffer(this->share_buffer);
   if (sret != status_t::SUCCESS) {
     logError("RDMACommunicator::allocate_buffer mem_op->free_buffer err %s.",
              status_to_string(sret));
@@ -43,12 +34,12 @@ status_t RDMACommunicator::init_sockaddr(const char *client_ip,
                                          const char *server_ip,
                                          uint16_t server_port) {
   // server addr
-  bzero(&this->server_addr, sizeof this->server_addr);
+  memset(&this->server_addr, 0, sizeof(this->server_addr));
   this->server_addr.sin_family = AF_INET;
   this->server_addr.sin_port = htons(server_port);
   inet_pton(AF_INET, server_ip, &this->server_addr.sin_addr);
   // client addr
-  bzero(&this->client_addr, sizeof this->client_addr);
+  memset(&this->client_addr, 0, sizeof(this->client_addr));
   this->client_addr.sin_family = AF_INET;
   this->client_addr.sin_port = htons(client_port);
   inet_pton(AF_INET, client_ip, &this->client_addr.sin_addr);
@@ -56,58 +47,76 @@ status_t RDMACommunicator::init_sockaddr(const char *client_ip,
 }
 
 status_t RDMACommunicator::Start() {
-  status_t sret = status_t::SUCCESS;
+  status_t sret_c = status_t::SUCCESS;
   std::atomic<status_t> server_sret(status_t::SUCCESS);
-  std::signal(SIGINT,
-              signalHandler); // set signal handler, stop current process.
 
   std::thread server_thread([this, &server_sret] {
     if (this->is_server) {
       server_sret.store(this->start_server());
     }
   });
+
   if (this->is_client) {
     while (this->retry_count < this->retry_times) {
-      sret = this->start_client();
-      if (sret == status_t::SUCCESS) {
-        break;
-      }
-      if (this->retry_count >= this->retry_times) {
-        sret = status_t::ERROR;
-        break;
-      }
+      sret_c = this->start_client();
+      if (sret_c == status_t::SUCCESS) break;
+      
       this->retry_count++;
-      std::this_thread::sleep_for(
-          std::chrono::milliseconds(this->retry_delay_time));
+      std::this_thread::sleep_for(std::chrono::milliseconds(this->retry_delay_time));
       logError("Retry to connect server. ...%d.", this->retry_count);
-      sret = this->setup_client(); // we need to re-setup the client.
-      if (sret != status_t::SUCCESS) {
+      
+      sret_c = this->setup_client(); // re setup client
+      if (sret_c != status_t::SUCCESS) {
+        logError("Setup client error. %s.", status_to_string(sret_c));
+        this->retry_count = 0;
         break;
       }
     }
+    if (this->retry_count >= this->retry_times) {
+      sret_c = status_t::ERROR;
+      logError("Connect server failed. %s.", status_to_string(sret_c));
+    }
   }
+
   server_thread.join();
   if (server_sret.load() != status_t::SUCCESS) {
-    sret = server_sret.load();
+    this->is_running = false;
+    return server_sret.load();
+  }
+
+  if (sret_c != status_t::SUCCESS) {
+    this->is_running = false;
+    return sret_c;
   }
 
   this->is_running = true;
-  return sret;
+  return status_t::SUCCESS;
 }
+
 status_t RDMACommunicator::Close() {
-  if (this->is_server)
-    this->close_server();
-  if (this->is_client)
-    this->close_client();
-  /* It is uncertain whether the destructor of unique_ptr truly releases memory
-   * upon destruction, so we explicitly release the memory each time we close.
-   */
-  if (this->is_buffer_ok) {
+  status_t close_status = status_t::SUCCESS;
+
+  if (this->is_server) {
+    close_status = this->close_server();
+    if (close_status != status_t::SUCCESS) {
+      logError("Failed to close server.");
+    }
+  }
+
+  if (this->is_client) {
+    close_status = this->close_client();
+    if (close_status != status_t::SUCCESS) {
+      logError("Failed to close client.");
+    }
+  }
+
+  if (is_buffer_ok) {
     this->free_buffer();
     logDebug("RDMACommunicator::Close free_buffer success.");
   }
+
   this->is_running = false;
-  return status_t::SUCCESS;
+  return close_status;
 }
 
 /*
@@ -293,7 +302,7 @@ status_t RDMACommunicator::send_rdma_msg(ibv_qp *qp,
   struct ibv_sge sge;
   struct ibv_send_wr wr;
   struct ibv_send_wr *b_wr = NULL;
-  bzero(&wr, sizeof(wr));
+  memset(&wr, 0, sizeof(wr));
   logDebug("RDMACommunicator::send_rdma_msg: post_send_work_request()");
 
   sge.addr = (uint64_t)msg_mr->addr;
@@ -333,7 +342,7 @@ status_t RDMACommunicator::recv_rdma_msg(ibv_qp *qp,
   struct ibv_sge sge;
   struct ibv_recv_wr wr;
   struct ibv_recv_wr *b_wr = NULL;
-  bzero(&wr, sizeof(wr));
+  memset(&wr, 0, sizeof(wr));
 
   logDebug("RDMACommunicator::recv_rdma_msg: post_send_work_request()");
 
@@ -460,8 +469,8 @@ status_t RDMACommunicator::start_server() {
   logInfo("Server prepare memory region success.");
 
   // control msg mr
-  bzero(&this->server_recv_msg, sizeof(this->server_recv_msg));
-  bzero(&this->server_send_msg, sizeof(this->server_send_msg));
+  memset(&this->server_recv_msg, 0, sizeof(this->server_recv_msg));
+  memset(&this->server_send_msg, 0, sizeof(this->server_send_msg));
   this->server_send_msg_mr = rdma_buffer_register(
       this->server_pd, &this->server_send_msg, sizeof(this->server_send_msg),
       (IBV_ACCESS_LOCAL_WRITE));
@@ -509,7 +518,7 @@ status_t RDMACommunicator::start_server() {
   }
 
   // 3.6. setup queue pair
-  bzero(&this->server_qp_init_attr, sizeof(this->server_qp_init_attr));
+  memset(&this->server_qp_init_attr, 0, sizeof(this->server_qp_init_attr));
   this->server_qp_init_attr.cap.max_recv_sge = MAX_SGE;
   this->server_qp_init_attr.cap.max_recv_wr = MAX_WR;
   this->server_qp_init_attr.cap.max_send_sge = MAX_SGE;
@@ -735,8 +744,8 @@ status_t RDMACommunicator::setup_client() {
   logInfo("Client prepare memory region success.");
 
   // control msg mr
-  bzero(&this->client_recv_msg, sizeof(this->client_recv_msg));
-  bzero(&this->client_send_msg, sizeof(this->client_send_msg));
+  memset(&this->client_recv_msg, 0, sizeof(this->client_recv_msg));
+  memset(&this->client_send_msg, 0, sizeof(this->client_send_msg));
   this->client_send_msg_mr = rdma_buffer_register(
       this->client_pd, &this->client_send_msg, sizeof(this->client_send_msg),
       (IBV_ACCESS_LOCAL_WRITE));
@@ -779,7 +788,7 @@ status_t RDMACommunicator::setup_client() {
 
   // 8. create qp
   logDebug("Create qp %p.", &this->client_qp_init_attr);
-  bzero(&this->client_qp_init_attr, sizeof this->client_qp_init_attr);
+  memset(&this->client_qp_init_attr, 0, sizeof(this->client_qp_init_attr));
   this->client_qp_init_attr.cap.max_recv_sge =
       MAX_SGE; /* Maximum SGE per receive posting */
   this->client_qp_init_attr.cap.max_recv_wr =
@@ -842,7 +851,7 @@ status_t RDMACommunicator::start_client() {
   struct rdma_cm_event *cm_event = NULL;
   int ret = -1;
   status_t sret;
-  bzero(&conn_param, sizeof(conn_param));
+  memset(&conn_param, 0, sizeof(conn_param));
   conn_param.initiator_depth = this->initiator_depth;
   conn_param.responder_resources = this->responder_resources;
   conn_param.retry_count = 3;
@@ -1003,7 +1012,7 @@ status_t RDMACommunicator::post_send_work_request(
   struct ibv_sge sge;
   struct ibv_send_wr wr;
   struct ibv_send_wr *b_wr = NULL;
-  bzero(&wr, sizeof(wr));
+  memset(&wr, 0, sizeof(wr));
 
   sge.addr = sge_addr;
   sge.length = sge_length;
@@ -1037,7 +1046,7 @@ status_t RDMACommunicator::post_recv_work_request(struct ibv_qp *qp,
   struct ibv_sge sge;
   struct ibv_recv_wr wr;
   struct ibv_recv_wr *b_wr = NULL;
-  bzero(&wr, sizeof(wr));
+  memset(&wr, 0, sizeof(wr));
 
   sge.addr = sge_addr;
   sge.length = sge_length;

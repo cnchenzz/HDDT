@@ -1,50 +1,51 @@
-# HDDT
-Distrubuted DNN Training on Heterogeneous GPUs
+# HDDT  
+Distributed DNN Training on Heterogeneous GPUs
 
-1. 创建编译目录
+[中文](README_zh.md)
+
+## How to Build?
+
+1. Create a build directory  
 ```
 mkdir build && cd build
 ```
 
-2. 生成makefile
+2. Generate the Makefile  
 ```
 cmake ..
 ```
 
-支持的参数
+Supported parameters:  
 ```
--DBUILD_STATIC_LIB=ON # 开启静态库编译
+-DBUILD_STATIC_LIB=ON # Enable static library compilation
 ```
 
-3. 编译
+3. Build  
 ```
 make
 ```
 
-
-# 环境依赖
-1. 计算库驱动 CUDA/DTK/CNRT etc.
-2. openMPI
+## Environment Dependencies
+1. Compute libraries and drivers: CUDA/DTK/CNRT, etc.
+2. OpenMPI  
     `sudo apt install openmpi-bin openmpi-common libopenmpi-dev`
-3. Miniconda
+3. Miniconda  
     - `https://docs.anaconda.com/miniconda/`
     - `conda create -n py310 python=3.10`
-4. pytorch
+4. PyTorch  
     - `pip3 install torch torchvision torchaudio`
     - `python -c "import torch; print(torch.cuda.is_available())"`
-5. glog
+5. Glog  
     - `sudo apt-get install libgoogle-glog-dev`
 
+## Build Python Package  
+The project packages its core functionalities for Python using pybind11.
 
-  
-# 构建python包
-项目通过pybind11将核心功能打包供python使用
+To build the Python package, you first need to pull the pybind11 library to support module building:  
+- In the project root directory, execute `git submodule update --init --recursive`
 
-要构建python包，首先需要拉取pybind11库以支持模块构建：
-- 项目根目录执行`git submodule update --init --recursive`
-
-然后开启python模块支持，并重新构建编译项目：
-- cmake命令指定-DBUILD_PYTHON_MOD=ON，按照前面步骤重新编译整个项目
-- python环境需安装build库 `pip install build`
-- 构建wheel包 `python -m build`
-- 安装wheel包 `pip install dist/xxx.whl`
+Then, enable Python module support and rebuild the project:  
+- Use the cmake command with the `-DBUILD_PYTHON_MOD=ON` flag, and rebuild the entire project following the previous steps.
+- The Python environment must have the build library installed: `pip install build`
+- Build the wheel package: `python -m build`
+- Install the wheel package: `pip install dist/xxx.whl`

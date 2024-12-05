@@ -1,4 +1,5 @@
 rm -rf build
 mkdir -p build && cd build
-cmake ..
+cmake .. -DBUILD_PYTHON_MOD=ON
+# cmake ..
 make
